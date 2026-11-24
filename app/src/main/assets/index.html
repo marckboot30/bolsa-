@@ -976,13 +976,15 @@ function renderLive() {
     if (R.open) { opens++; const o = R.open, pct = px ? (px / o.price - 1) * 100 : null, up = pct == null || pct >= 0;
       pill = '<span class="pill ' + (up ? "pg" : "pr") + '">COMPRADO ' + (pct == null ? "" : (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%") + '</span>';
     } else pill = '<span class="pill">' + (w.off ? "DESLIGADO" : paused ? "⏸ PAUSADO" : "FORA") + '</span>';
-    let sub2 = (TFS.find(t => t.id === w.tf) || {}).label + ' · ' + (td.length ? td.length + ' op. hoje' : 'sem operações hoje');
+    let sub2 = (TFS.find(t => t.id === w.tf) || {}).label + ' · ' + curStrat(w.id, w.tf).name + (w.hit ? ' · 🎯' + w.hit + '%' : '');
     if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · 🛑 ' + fmt(R.open.sl, a) : '');
     rows += '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b><small>' + sub2 + '</small></div>' +
       '<div class="rt">' + pill + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small></div></div>';
   }
   const q = brkQuoteCur(curAsset()) || "USDT";
   el.innerHTML = '<div class="hd"><span>🤖 ROBÔS · ' + (real ? '<b class="down">CONTA REAL</b>' : 'CONTA DE TESTE') + ' · ' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b></div>' + rows;
+  el.insertAdjacentHTML("beforeend", rs.some(w => w.robot) ? '<button class="rbPanic" id="liveOff" style="height:32px;margin-top:6px;border-color:#263042;color:#b9c1cf;background:none">⏹ Desligar todos os robôs</button>' : '');
+  const off = document.getElementById("liveOff"); if (off) off.onclick = () => { cfg.watch.forEach(w => { if (w.src === "binance") w.robot = false; }); syncWatch(); renderLive(); toast("Robôs desligados. Posições abertas continuam com alvo e stop na Binance."); };
   el.querySelectorAll(".lrow").forEach(r => r.onclick = () => { if (r.dataset.id !== cfg.asset || r.dataset.tf !== cfg.tf) openFrom(r.dataset.id, r.dataset.tf); });
 }
 // preço ao vivo das outras criptos com robô comprado
@@ -1300,9 +1302,37 @@ document.getElementById("optRun").onclick = async () => {
     const q = list.slice(), workers = []; for (let k = 0; k < (all ? 4 : 1); k++) workers.push((async () => { while (q.length) await work(q.shift()); })());
     await Promise.all(workers);
     showOpt();
+    if (all && cfg.autoTop !== false) {
+      const r = applyTop();
+      if (r.n) { optSheet.classList.remove("open"); const best = cfg.watch.find(w => w.robot && w.hit); renderLive(); toast("🤖 Robô ligado nas " + r.n + " melhores criptos");
+        setTimeout(() => document.getElementById("live").scrollIntoView({ behavior: "smooth", block: "center" }), 300); }
+      else optOut.insertAdjacentHTML("afterbegin", r.html);
+    }
   } finally { btn.disabled = false; }
 };
 let optAll = false;
+function toast(t) { let el = document.getElementById("toast"); if (!el) { el = document.createElement("div"); el.id = "toast"; el.style.cssText = "position:fixed;left:12px;right:12px;bottom:24px;z-index:50;background:#1f2a3d;border:1px solid #2b6cff;color:#fff;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:700;text-align:center;transition:opacity .3s"; document.body.appendChild(el); }
+  el.textContent = t; el.style.opacity = 1; clearTimeout(el._t); el._t = setTimeout(() => el.style.opacity = 0, 3500); }
+// liga o robô nas melhores (75%+ e lucro), troca as que saíram do topo (se não estiverem compradas)
+function applyTop() {
+  const D = optDays, N = Math.min(6, cfg.robotTopN || 5), q = cfg.repQuote || "USDT", seen = new Set();
+  const hit = r => Math.round(r.per[D].wins / r.per[D].n * 100);
+  const pool = optResults.filter(r => r.per[D] && r.per[D].n >= 5 && r.per[D].sum > 0 && r.a.crypto && r.a.id.endsWith(q) && hit(r) >= 75), big = pool.filter(r => r.per[D].n >= 8);
+  const pick = (big.length >= N ? big : pool).sort((x, y) => hit(y) - hit(x) || y.per[D].sum - x.per[D].sum).filter(r => !seen.has(r.a.id) && seen.add(r.a.id)).slice(0, N);
+  if (!pick.length) return { n: 0, html: '<p class="down" style="font-size:12px">Nenhuma cripto em ' + q + ' chegou a 75% de acerto com lucro nos últimos ' + D + ' dias. Robôs não foram trocados.</p>' };
+  const keep = new Set(pick.map(r => r.a.id + "|" + r.tf.id));
+  for (const w of cfg.watch) if (w.robot && w.src === "binance" && !keep.has(w.id + "|" + w.tf)) { const a = assets().find(x => x.id === w.id); if (!(a && robotState(a, w.tf).open)) w.robot = false; }
+  cfg.watch = cfg.watch.filter(w => !w.auto || w.robot);
+  cfg.strat = cfg.strat || {}; cfg.exitBy = cfg.exitBy || {};
+  for (const r of pick) { const k = r.a.id + "|" + r.tf.id; cfg.strat[k] = r.st.id; cfg.exitBy[k] = r.ex;
+    let w = cfg.watch.find(x => x.id === r.a.id && x.tf === r.tf.id);
+    if (!w) { w = { id: r.a.id, tf: r.tf.id, name: r.a.name, src: "binance", dec: 2, b3: false, cur: /USDT$/.test(r.a.id) ? "" : "R$ ", auto: true }; cfg.watch.push(w); }
+    w.robot = true; w.hit = hit(r); }
+  if ((cfg.robotMaxOpen || 5) < pick.length) cfg.robotMaxOpen = pick.length;
+  syncWatch();
+  const val = cfg.robotQuote || 50;
+  return { n: pick.length, html: '<p class="up" style="font-size:13px;margin:0"><b>🤖 Robô ligado em ' + pick.length + ' criptos</b> (' + val + ' ' + q + ' cada, até ' + (val * pick.length) + ' ' + q + ' se todas entrarem juntas).</p>' };
+}
 function showOpt() {
   if (!optResults.length) { optOut.innerHTML = '<p class="down">Não consegui baixar o histórico. Verifique a internet.</p>'; return; }
   const D = optDays, minOps = 5, byHit = optSort === "hit";
@@ -1328,6 +1358,7 @@ function showOpt() {
     h += '<div class="card" style="margin:10px 0 6px;padding:10px;border-color:#2b6cff"><div class="row" style="align-items:center;gap:8px"><b style="font-size:14px">🤖 Ligar robô nas melhores</b>' +
       '<div class="seg" id="topN">' + [3, 5, 6].map(n => '<button data-n="' + n + '" class="' + (n === N ? "on" : "") + '">' + n + '</button>').join("") + '</div></div>' +
       '<p class="mut" style="font-size:12px;margin:6px 0">Escolhe até ' + N + ' criptos em ' + q + ' com <b>75% ou mais</b> de acerto e lucro e liga o robô em todas, cada uma com a sua estratégia, tempo e saída.</p>' +
+      '<div class="sw" style="margin:0 0 8px;font-size:13px"><span>Ligar sozinho ao terminar a análise</span><input type="checkbox" id="autoTop"' + (cfg.autoTop !== false ? " checked" : "") + '></div>' +
       '<button class="primary" id="topGo" style="margin:0;height:42px">🤖 Ligar nas ' + N + ' melhores</button></div>';
   }
   if (rows.length) h += '<p class="mut" style="font-size:11px;margin:8px 0 0">✔ = deu lucro nos períodos de 30, 60 e 90 dias. "Xd" = o histórico grátis só cobria X dias nesse tempo gráfico. O passado não garante o futuro.</p>';
@@ -1335,23 +1366,8 @@ function showOpt() {
   optOut.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { optSort = b.dataset.sort; store.set("optSort", optSort); showOpt(); });
   optOut.querySelectorAll("#topN [data-n]").forEach(b => b.onclick = () => { cfg.robotTopN = +b.dataset.n; store.set("cfg", cfg); showOpt(); });
   const go = document.getElementById("topGo");
-  if (go) go.onclick = () => {
-    const N = Math.min(6, cfg.robotTopN || 5), q = cfg.repQuote || "USDT", seen = new Set();
-    const pool = valid.filter(r => r.per[D].sum > 0 && r.a.crypto && r.a.id.endsWith(q) && hit(r) >= 75), big = pool.filter(r => r.per[D].n >= 8);
-    const pick = (big.length >= N ? big : pool).sort((x, y) => hit(y) - hit(x) || y.per[D].sum - x.per[D].sum)
-      .filter(r => !seen.has(r.a.id) && seen.add(r.a.id)).slice(0, N);
-    if (!pick.length) { go.insertAdjacentHTML("afterend", '<p class="down" style="font-size:12px">Nenhuma cripto em ' + q + ' chegou a 75% de acerto com lucro neste período.</p>'); return; }
-    cfg.strat = cfg.strat || {}; cfg.exitBy = cfg.exitBy || {};
-    for (const r of pick) { const k = r.a.id + "|" + r.tf.id; cfg.strat[k] = r.st.id; cfg.exitBy[k] = r.ex;
-      let w = cfg.watch.find(x => x.id === r.a.id && x.tf === r.tf.id);
-      if (!w) { w = { id: r.a.id, tf: r.tf.id, name: r.a.name, src: "binance", dec: 2, b3: false, cur: /USDT$/.test(r.a.id) ? "" : "R$ " }; cfg.watch.push(w); }
-      w.robot = true; }
-    if ((cfg.robotMaxOpen || 5) < pick.length) cfg.robotMaxOpen = pick.length;
-    syncWatch();
-    const val = cfg.robotQuote || 50;
-    go.outerHTML = '<p class="up" style="font-size:13px;margin:0"><b>🤖 Robô ligado em ' + pick.length + ' criptos:</b></p>' + pick.map(r => '<p style="font-size:12px;margin:2px 0">• <b>' + parts(r.a).t + '</b> · ' + r.st.name + ' · ' + r.tf.label + ' · 🎯 ' + hit(r) + '%</p>').join("") +
-      '<p class="mut" style="font-size:12px;margin:6px 0 0">Cada uma usa ' + val + ' ' + q + ' por operação (até ' + (val * pick.length) + ' ' + q + ' se todas entrarem juntas). Elas entram sozinhas quando sair o sinal.</p>';
-  };
+  if (go) go.onclick = () => { const r = applyTop(); go.outerHTML = r.html; if (r.n) { optSheet.classList.remove("open"); renderLive(); document.getElementById("live").scrollIntoView({ behavior: "smooth", block: "center" }); } };
+  const at = document.getElementById("autoTop"); if (at) at.onchange = () => { cfg.autoTop = at.checked; store.set("cfg", cfg); };
   optOut.querySelectorAll(".orow").forEach(el => el.onclick = () => { const r = optResults[+el.dataset.k]; optSheet.classList.remove("open"); openFrom(r.a.id, r.tf.id, r.st.id, r.ex); });
 }
 
