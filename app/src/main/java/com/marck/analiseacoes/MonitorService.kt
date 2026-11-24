@@ -173,8 +173,11 @@ class MonitorService : Service() {
         if (w.cross) {
             val dirs = Strategies.dirs(cs, w.strat) { day(it) }
             val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d", w.target) { day(it) }
+            val stKey = "st|${w.id}|${w.tf}"; val wasIn = sentPrefs.getBoolean(stKey, false)
+            sentPrefs.edit().putBoolean(stKey, evs.lastOrNull()?.entry == true).apply()
             for (e in evs) {
                 if (e.i != k) continue
+                if (e.entry == wasIn) continue // já avisou essa entrada (ou essa saída) antes
                 if (w.robot && w.src == "binance") robot(w, e, c.t)
                 if (e.entry) send("${w.id}|${w.tf}|in|${c.t}",
                     (if (e.dir > 0) "🟢 ENTRADA DE COMPRA" else "🔴 ENTRADA DE VENDA") + " · ${w.name} ($tfName)",
@@ -237,7 +240,7 @@ class MonitorService : Service() {
         sentPrefs.edit().putStringSet("k", sent).apply()
         val n = builder("sinais").setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title).setContentText(text).setStyle(Notification.BigTextStyle().bigText(text))
-            .setAutoCancel(true).setContentIntent(openApp(this)).build()
+            .setAutoCancel(true).setContentIntent(openAt(this, key)).build()
         getSystemService(NotificationManager::class.java).notify(key.hashCode(), n)
     }
 
@@ -248,6 +251,14 @@ class MonitorService : Service() {
         .setContentTitle("Análise de Ações").setContentText(text).setOngoing(true).setContentIntent(openApp(this)).build()
 
     companion object {
+        /** Abre o app já no ativo e no tempo gráfico do alerta (a chave começa com "ativo|tempo|..."). */
+        fun openAt(ctx: Context, key: String): PendingIntent {
+            val p = key.removePrefix("robo|").split("|")
+            val i = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            if (p.size >= 2) i.putExtra("asset", p[0]).putExtra("tf", p[1])
+            return PendingIntent.getActivity(ctx, key.hashCode(), i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+
         fun openApp(ctx: Context): PendingIntent = PendingIntent.getActivity(ctx, 0,
             Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE)
 

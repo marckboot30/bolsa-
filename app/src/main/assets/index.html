@@ -863,6 +863,13 @@ function checkAlerts() {
 }
 
 // ================= VIGIA NO FUNDO =================
+// aberto por uma notificação: vai direto para o ativo e o tempo gráfico do alerta
+window.openFrom = (id, tf) => {
+  if (!assets().some(a => a.id === id) || !TFS.some(t => t.id === tf)) return;
+  if (cfg.asset === id && cfg.tf === tf) { refresh(true); return; }
+  cfg.asset = id; cfg.tf = tf; store.set("cfg", cfg); buildUi(); data = null; stopStream(); draw(); refresh();
+  window.scrollTo(0, 0);
+};
 // ================= ROBÔ (BINANCE) =================
 const BRK_MODES = { demo: "Demo (teste)", testnet: "Testnet", real: "⚠️ REAL" };
 const brkReq = {}; let brkId = 0;

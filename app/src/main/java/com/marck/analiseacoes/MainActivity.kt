@@ -39,10 +39,27 @@ class MainActivity : Activity() {
         web.setBackgroundColor(Color.parseColor("#0b0e14"))
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
-        web.webViewClient = WebViewClient()
+        web.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) { loaded = true; openFromIntent(intent) }
+        }
         web.addJavascriptInterface(Bridge(), "Android")
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")
+    }
+
+    private var loaded = false
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent); setIntent(intent)
+        if (loaded) openFromIntent(intent)
+    }
+
+    /** Veio de uma notificação: abre o gráfico no ativo e no tempo do alerta. */
+    private fun openFromIntent(i: Intent?) {
+        val a = i?.getStringExtra("asset") ?: return; val tf = i.getStringExtra("tf") ?: return
+        i.removeExtra("asset"); i.removeExtra("tf")
+        val q = { s: String -> "'" + s.replace("\\", "").replace("'", "") + "'" }
+        web.evaluateJavascript("window.openFrom && window.openFrom(${q(a)}, ${q(tf)})", null)
     }
 
     inner class Bridge {
