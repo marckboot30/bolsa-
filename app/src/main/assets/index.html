@@ -17,6 +17,13 @@
   .iconbtn { width: 42px; height: 42px; border-radius: 12px; border: 1px solid #263042; background: #141a25; font-size: 18px; }
   .price { padding: 2px 14px 6px; display: flex; align-items: baseline; gap: 10px; }
   .price b { font-size: 28px; }
+  .live { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 800; padding: 3px 8px; border-radius: 8px; background: #1c2433; color: #8a94a6; }
+  .live.on { background: rgba(255,84,104,.15); color: #ff5468; }
+  .live .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .live.on .dot { animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .2; } }
+  #last { transition: color .4s; }
+  #last.tickUp { color: #26c281; } #last.tickDown { color: #ff5468; }
   .up { color: #26c281; } .down { color: #ff5468; } .mut { color: #8a94a6; }
   #chartWrap { position: relative; margin: 0 6px; border-radius: 14px; overflow: hidden; background: #0f141d; border: 1px solid #1c2433; }
   canvas { display: block; width: 100%; touch-action: none; }
@@ -57,7 +64,8 @@
   <button class="iconbtn" id="cfgBtn" title="Ajustes">⚙</button>
 </header>
 <div class="tf" id="tfs"></div>
-<div class="price"><b id="last">—</b><span id="chg" class="mut"></span><span id="asof" class="mut" style="margin-left:auto;font-size:12px"></span></div>
+<div class="price"><b id="last">—</b><span id="chg" class="mut"></span><span id="liveTag" class="live" style="margin-left:auto"><span class="dot"></span><span id="liveTxt">—</span></span></div>
+<div class="status" id="asof" style="text-align:right;padding-bottom:4px"></div>
 <div id="chartWrap">
   <canvas id="chart"></canvas>
   <div class="zoom"><button id="zOut">−</button><button id="zIn">+</button></div>
@@ -91,7 +99,7 @@
   <label>Adicionar ação da B3 (ex.: WEGE3) ou cripto da Binance (ex.: ADABRL, PEPEUSDT)</label><input type="text" id="cfgAdd" placeholder="WEGE3 ou ADABRL" autocapitalize="characters">
   <div class="sw"><span>Avisar no celular quando sair sinal</span><input type="checkbox" id="cfgAlert"></div>
   <div class="sw"><span>Avisar quando romper máxima/mínima do dia</span><input type="checkbox" id="cfgBreak"></div>
-  <div class="sw"><span>Atualizar sozinho a cada minuto</span><input type="checkbox" id="cfgAuto"></div>
+  <div class="sw"><span>Atualizar sozinho (ao vivo)</span><input type="checkbox" id="cfgAuto"></div>
   <button class="primary" id="cfgSave">Salvar</button>
 </div></div>
 
@@ -178,10 +186,11 @@ function candlePattern(cs, i) {
   if (body >= range * .8 && range > avg * 1.2) return c.c > c.o ? { k: "F+", name: "Candle de força (alta)", dir: 1, txt: "Corpo grande e quase sem pavio: compra forte." } : { k: "F-", name: "Candle de força (baixa)", dir: -1, txt: "Corpo grande e quase sem pavio: venda forte." };
   return c.c >= c.o ? { k: "", name: "Candle de alta", dir: 0, txt: "Fechou acima da abertura, sem padrão forte." } : { k: "", name: "Candle de baixa", dir: 0, txt: "Fechou abaixo da abertura, sem padrão forte." };
 }
-function analyze(cs, fastN, slowN, intraday) {
+function analyze(cs, fastN, slowN, intraday, forming) {
   const closes = cs.map(c => c.c), fast = ema(closes, fastN), slow = ema(closes, slowN);
   const signals = []; // {i, dir}
-  for (let i = 1; i < cs.length; i++) {
+  const lastClosed = forming ? cs.length - 1 : cs.length;
+  for (let i = 1; i < lastClosed; i++) {
     if (fast[i - 1] == null || slow[i - 1] == null) continue;
     if (intraday && cs[i].day !== cs[i - 1].day) continue; // ignora o salto da abertura
     if (fast[i - 1] <= slow[i - 1] && fast[i] > slow[i] && cs[i].c > cs[i].o) signals.push({ i, dir: 1 });
@@ -198,8 +207,8 @@ function analyze(cs, fastN, slowN, intraday) {
     let hi = -Infinity, lo = Infinity, day = null;
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i]; if (c.day !== day) { day = c.day; hi = c.h; lo = c.l; continue; }
-      if (c.c > hi && i > 0 && cs[i - 1].day === day) breaks.push({ i, dir: 1 });
-      else if (c.c < lo) breaks.push({ i, dir: -1 });
+      if (i < lastClosed && c.c > hi && i > 0 && cs[i - 1].day === day) breaks.push({ i, dir: 1 });
+      else if (i < lastClosed && c.c < lo) breaks.push({ i, dir: -1 });
       hi = Math.max(hi, c.h); lo = Math.min(lo, c.l);
     }
   }
@@ -311,9 +320,14 @@ function render() {
   const cs = data.candles, asset = curAsset(), tf = curTf(), n = cs.length, last = cs[n - 1];
   const ref = tf.intraday ? (an.prev ? cs.filter(c => c.day === an.prev).slice(-1)[0].c : data.prevClose) : cs[n - 2].c;
   const ch = last.c - ref, pct = ch / ref * 100;
-  setText("last", fmt(last.c, asset));
+  const lastEl = document.getElementById("last"), prevTxt = lastEl.textContent, newTxt = fmt(last.c, asset);
+  if (prevTxt !== newTxt && prevPrice != null) { lastEl.classList.remove("tickUp", "tickDown"); void lastEl.offsetWidth; lastEl.classList.add(last.c >= prevPrice ? "tickUp" : "tickDown"); clearTimeout(tickT); tickT = setTimeout(() => lastEl.classList.remove("tickUp", "tickDown"), 700); }
+  prevPrice = last.c; lastEl.textContent = newTxt;
   setText("chg", (ch >= 0 ? "+" : "") + fmt(ch, asset) + " (" + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%)", ch >= 0 ? "up" : "down");
-  setText("asof", (tf.intraday ? last.date + " " + last.hm : last.date));
+  setText("asof", "Candle de " + (tf.intraday ? last.date + " " + last.hm : last.date) + (asset.crypto ? "" : " · dados da B3 com atraso de ~15 min"));
+  const open = marketOpen(asset), tag = document.getElementById("liveTag");
+  tag.className = "live" + (open ? " on" : "");
+  setText("liveTxt", asset.crypto ? (streamOk ? "AO VIVO" : "conectando…") : (open ? "AO VIVO (atraso 15 min)" : "mercado fechado"));
   document.getElementById("legend").innerHTML = '<span><i style="background:#ffc531"></i>Média ' + cfg.fast + '</span><span><i style="background:#a77bff"></i>Média ' + cfg.slow + '</span>' + (tf.intraday ? '<span><i style="background:#26c281"></i>Máx dia</span><span><i style="background:#ff5468"></i>Mín dia</span>' : '') + '<span>▲ compra ▼ venda</span>';
   // sinal
   const s = an.signals[an.signals.length - 1];
@@ -329,7 +343,7 @@ function render() {
   else if (last.c < f && f < sl && sl <= slPrev) { tr = "Baixa"; tc = "v down"; tt = "Preço abaixo das duas médias, e a média lenta caindo."; }
   else { tr = "Lateral"; tc = "v mut"; tt = "Médias embaralhadas: sem tendência clara. Os sinais erram mais aqui."; }
   setText("trend", tr, tc); setText("trendTxt", tt);
-  const p = an.pats[n - 1]; setText("candle", p.name, "v " + (p.dir > 0 ? "up" : p.dir < 0 ? "down" : "")); setText("candleTxt", p.txt);
+  const p = an.pats[n - 1]; setText("candle", (data.forming ? "Formando: " : "") + p.name, "v " + (p.dir > 0 ? "up" : p.dir < 0 ? "down" : "")); setText("candleTxt", p.txt);
   // máximas e mínimas
   if (tf.intraday) {
     const d = an.days[an.today], pv = an.prev ? an.days[an.prev] : null;
@@ -410,6 +424,40 @@ document.getElementById("watchBtn").onclick = toggleWatch;
 document.getElementById("watchToggle").onclick = toggleWatch;
 document.getElementById("batteryBtn").onclick = () => { if (window.Android && Android.batteryExempt) Android.batteryExempt(); };
 
+// ================= TEMPO REAL =================
+let ws = null, wsKey = null, streamOk = false, prevPrice = null, tickT = null, drawPending = false;
+function marketOpen(a) {
+  if (a.crypto) return true;
+  const d = new Date(Date.now() - 3 * 3600 * 1000), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return wd >= 1 && wd <= 5 && m >= 9 * 60 && m <= 18 * 60 + 30;
+}
+function scheduleRender() {
+  if (drawPending) return; drawPending = true;
+  setTimeout(() => { drawPending = false; if (!data) return; an = analyze(data.candles, cfg.fast, cfg.slow, curTf().intraday, data.forming); render(); }, 200);
+}
+function startStream() {
+  const a = curAsset(), tf = curTf(), key = a.id + "|" + tf.id;
+  if (wsKey === key && ws) return;
+  stopStream(); if (!a.crypto) return;
+  wsKey = key; streamOk = false;
+  try { ws = new WebSocket("wss://stream.binance.com:9443/ws/" + a.id.toLowerCase() + "@kline_" + BIN_IV[tf.id]); } catch (e) { return; }
+  ws.onopen = () => { streamOk = true; };
+  ws.onmessage = ev => {
+    if (!data || wsKey !== curAsset().id + "|" + curTf().id) return;
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    const k = m.k; if (!k) return;
+    const t = Math.floor(k.t / 1000), cs = data.candles, last = cs[cs.length - 1];
+    const c = Object.assign({ t, o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v }, brt(t));
+    if (last && last.t === t) cs[cs.length - 1] = c; else if (!last || t > last.t) { cs.push(c); if (cs.length > 600) cs.shift(); }
+    data.forming = !k.x;
+    streamOk = true; scheduleRender();
+    if (k.x) setTimeout(() => { an = analyze(data.candles, cfg.fast, cfg.slow, curTf().intraday, false); checkAlerts(); }, 250);
+  };
+  ws.onclose = () => { const was = wsKey; ws = null; streamOk = false; setTimeout(() => { if (wsKey === was && !document.hidden) { wsKey = null; startStream(); } }, 3000); };
+}
+function stopStream() { if (ws) { const w = ws; ws = null; w.onclose = null; try { w.close(); } catch (e) {} } wsKey = null; streamOk = false; }
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopStream(); else { refresh(true); } });
+
 // ================= FLUXO =================
 const statusEl = document.getElementById("status");
 let loading = false;
@@ -419,10 +467,11 @@ async function refresh(keepView) {
     const asset = curAsset(), tf = curTf();
     data = await loadCandles(asset, tf);
     if (data.candles.length < cfg.slow + 5) throw new Error("poucos dados para esse tempo gráfico");
-    an = analyze(data.candles, cfg.fast, cfg.slow, tf.intraday);
+    data.forming = asset.crypto ? true : marketOpen(asset) && tf.intraday;
+    an = analyze(data.candles, cfg.fast, cfg.slow, tf.intraday, data.forming);
     if (!keepView) view.end = null;
-    render(); checkAlerts();
-    statusEl.textContent = "Atualizado às " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) + (cfg.auto ? " · atualiza a cada minuto" : "");
+    render(); checkAlerts(); startStream();
+    statusEl.textContent = asset.crypto ? "" : "Atualizado às " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) + (cfg.auto && marketOpen(asset) ? " · atualiza a cada 10 segundos" : "");
   } catch (e) { statusEl.textContent = "Não consegui carregar: " + e.message + ". Verifique a internet."; }
   loading = false;
 }
@@ -430,9 +479,9 @@ function buildUi() {
   const sel = document.getElementById("asset"); sel.innerHTML = "";
   for (const a of assets()) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.name; sel.appendChild(o); }
   renderWatch();
-  sel.value = cfg.asset; sel.onchange = () => { cfg.asset = sel.value; store.set("cfg", cfg); data = null; draw(); refresh(); };
+  sel.value = cfg.asset; sel.onchange = () => { cfg.asset = sel.value; store.set("cfg", cfg); data = null; stopStream(); prevPrice = null; draw(); refresh(); };
   const box = document.getElementById("tfs"); box.innerHTML = "";
-  for (const t of TFS) { const b = document.createElement("button"); b.className = "chip" + (t.id === cfg.tf ? " on" : ""); b.textContent = t.label; b.onclick = () => { cfg.tf = t.id; store.set("cfg", cfg); buildUi(); data = null; draw(); refresh(); }; box.appendChild(b); }
+  for (const t of TFS) { const b = document.createElement("button"); b.className = "chip" + (t.id === cfg.tf ? " on" : ""); b.textContent = t.label; b.onclick = () => { cfg.tf = t.id; store.set("cfg", cfg); buildUi(); data = null; stopStream(); draw(); refresh(); }; box.appendChild(b); }
 }
 document.getElementById("refreshBtn").onclick = () => refresh(true);
 const sheet = document.getElementById("sheet");
@@ -452,7 +501,9 @@ document.getElementById("cfgSave").onclick = () => {
   syncWatch(); sheet.classList.remove("open"); buildUi(); refresh();
 };
 window.addEventListener("resize", () => { sizeCanvas(); if (data) draw(); });
-setInterval(() => { if (cfg.auto && !document.hidden) refresh(true); }, 60000);
+// B3: busca de novo a cada 10 s com o mercado aberto (cripto já vem ao vivo pelo WebSocket)
+setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && !a.crypto && marketOpen(a)) refresh(true); }, 10000);
+setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && (a.crypto || !marketOpen(a))) refresh(true); }, 120000);
 buildUi(); sizeCanvas(); draw(); refresh(); if (cfg.watch.length) syncWatch();
 window.app = { analyze, backtest, candlePattern, refresh, get data() { return data; }, get an() { return an; } };
 </script>
