@@ -25,6 +25,7 @@ import java.util.TimeZone
 data class Watch(
     val id: String, val tf: String, val name: String, val src: String,
     val fast: Int, val slow: Int, val cross: Boolean, val brk: Boolean, val dec: Int, val b3: Boolean,
+    val strat: JSONObject, val stratName: String,
 )
 
 object Watches {
@@ -35,7 +36,9 @@ object Watches {
         List(a.length()) { i ->
             val o = a.getJSONObject(i)
             Watch(o.getString("id"), o.getString("tf"), o.optString("name", o.getString("id")), o.optString("src", "yahoo"),
-                o.optInt("fast", 9), o.optInt("slow", 21), o.optBoolean("cross", true), o.optBoolean("brk", true), o.optInt("dec", 2), o.optBoolean("b3", true))
+                o.optInt("fast", 9), o.optInt("slow", 21), o.optBoolean("cross", true), o.optBoolean("brk", true), o.optInt("dec", 2), o.optBoolean("b3", true),
+                o.optJSONObject("strat") ?: JSONObject().put("type", "ma").put("f", o.optInt("fast", 9)).put("s", o.optInt("slow", 21)),
+                o.optString("stratName", "Cruzamento de médias"))
         }
     }.getOrDefault(emptyList())
 
@@ -87,7 +90,6 @@ class MonitorService : Service() {
     }
 
     // ---------------- dados ----------------
-    private class Candle(val t: Long, val o: Double, val h: Double, val l: Double, val c: Double)
 
     private fun get(url: String): String {
         val c = URL(url).openConnection() as HttpURLConnection
@@ -132,15 +134,13 @@ class MonitorService : Service() {
     private fun check(w: Watch) {
         val cs = candles(w); if (cs.size < w.slow + 3) return
         val k = cs.size - 1; val c = cs[k]
-        val closes = cs.map { it.c }; val f = ema(closes, w.fast); val s = ema(closes, w.slow)
         val tfName = when (w.tf) { "1m" -> "1 min"; "5m" -> "5 min"; "15m" -> "15 min"; "60m" -> "1 hora"; else -> "diário" }
         val sameDay = day(cs[k - 1].t) == day(c.t)
-        if (w.cross && !f[k - 1].isNaN() && !s[k - 1].isNaN() && (!w.b3 || sameDay || w.tf == "1d")) {
-            val up = f[k - 1] <= s[k - 1] && f[k] > s[k] && c.c > c.o
-            val down = f[k - 1] >= s[k - 1] && f[k] < s[k] && c.c < c.o
-            if (up || down) send("${w.id}|${w.tf}|x|${c.t}",
-                (if (up) "🟢 COMPRA" else "🔴 VENDA") + " · ${w.name} ($tfName)",
-                "Média ${w.fast} cruzou ${if (up) "para cima" else "para baixo"} da ${w.slow}. Preço: ${fmt(c.c, w)}")
+        if (w.cross && (!w.b3 || sameDay || w.tf == "1d")) {
+            val dir = Strategies.dirs(cs, w.strat) { day(it) }[k]
+            if (dir != 0) send("${w.id}|${w.tf}|x|${c.t}",
+                (if (dir > 0) "🟢 COMPRA" else "🔴 VENDA") + " · ${w.name} ($tfName)",
+                "${w.stratName}. Preço: ${fmt(c.c, w)}")
         }
         if (w.brk && w.tf != "1d") {
             var hi = Double.NEGATIVE_INFINITY; var lo = Double.POSITIVE_INFINITY
