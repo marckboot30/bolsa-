@@ -75,6 +75,14 @@
   .star.fav { color: #ffd166; }
   .gh { font-size: 12px; font-weight: 800; color: #8a94a6; text-transform: uppercase; letter-spacing: .5px; margin: 12px 8px 4px; }
   .hidden { display: none !important; }
+  .lrow { display: flex; align-items: center; gap: 9px; padding: 7px 4px; border-top: 1px solid #1c2433; }
+  .lrow:first-of-type { border-top: 0; } .lrow.on { background: #16223a; border-radius: 10px; }
+  .lrow .logo { width: 28px; height: 28px; font-size: 9px; }
+  .lrow .tx { flex: 1; min-width: 0; } .lrow .tx b { font-size: 14px; }
+  .lrow small { display: block; font-size: 11px; color: #8a94a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lrow .rt { text-align: right; flex: none; } .lrow .rt small { margin-top: 2px; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 900; padding: 3px 8px; border-radius: 8px; background: #263042; color: #b9c1cf; }
+  .pill.pg { background: #1f9e6a; color: #fff; } .pill.pr { background: #d9414f; color: #fff; }
   .orow { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 12px; background: #141a25; border: 1px solid #1c2433; margin-bottom: 6px; }
   .orow:active { background: #1a2335; }
   .orow .tx { flex: 1; min-width: 0; } .orow .tx b { font-size: 15px; }
@@ -154,7 +162,7 @@
       <div class="rbRow"><label for="brkMaxLoss">Perda máxima por dia</label><input type="number" id="brkMaxLoss" min="0" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxLosses">Parar após perdas seguidas</label><input type="number" id="brkMaxLosses" min="0" max="20" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxLossAll">Perda máxima do dia (todos os robôs)</label><input type="number" id="brkMaxLossAll" min="0" step="1" class="sm"></div>
-      <div class="rbRow"><label for="brkMaxOpen">Máx. robôs comprados ao mesmo tempo</label><input type="number" id="brkMaxOpen" min="0" max="50" step="1" class="sm"></div>
+      <div class="rbRow"><label for="brkMaxOpen">Máx. robôs comprados ao mesmo tempo</label><input type="number" id="brkMaxOpen" min="0" max="6" step="1" class="sm"></div>
       <p class="mut" style="font-size:11px;margin:4px 0 0">As duas primeiras valem por cripto; as duas últimas somam todos os robôs. Ao bater um limite, para de comprar até amanhã. 0 desliga.</p>
     </details>
     <details class="rbSec" id="brkKeys"><summary>🔑 Chave da API deste modo</summary>
@@ -934,8 +942,8 @@ function setText(id, t, cls) { const el = document.getElementById(id); el.textCo
 // ================= ROBÔ AO VIVO =================
 let liveLog = [], liveLogT = 0;
 function robotLog() { if (Date.now() - liveLogT > 3000) { try { liveLog = JSON.parse(Android.brokerLog()); } catch (e) { liveLog = []; } liveLogT = Date.now(); } return liveLog; }
-function robotState(a) {
-  let st = { mode: "demo", inPos: false, beat: 0, now: Date.now() }; try { st = JSON.parse(Android.robotStatus(a.id, cfg.tf)); } catch (e) {}
+function robotState(a, tf) {
+  let st = { mode: "demo", inPos: false, beat: 0, now: Date.now() }; try { st = JSON.parse(Android.robotStatus(a.id, tf || cfg.tf)); } catch (e) {}
   const mine = robotLog().filter(o => o.symbol === a.id && (o.mode || "demo") === st.mode && o.side !== "ERRO");
   const lastBuy = mine.find(o => o.side === "BUY"), open = mine[0] && mine[0].side === "BUY" ? mine[0] : null;
   // operações fechadas (compra → venda), da mais nova para a mais velha
@@ -943,39 +951,47 @@ function robotState(a) {
   const err = robotLog().find(o => o.symbol === a.id && o.side === "ERRO");
   return { st, mine, open, lastBuy, trips, err };
 }
-function renderLive() {
-  const el = document.getElementById("live"), a = curAsset(), w = cfg.watch.find(x => x.id === a.id && x.tf === cfg.tf && x.robot);
-  if (!a.crypto || !(window.Android && Android.robotStatus) || !data) { el.style.display = "none"; return; }
-  const R = robotState(a); if (!w && !R.open) { el.style.display = "none"; return; }
-  el.style.display = "";
-  const px = data.candles[data.candles.length - 1].c, cur = brkQuoteCur(a), money = v => (v >= 0 ? "+" : "−") + (cur === "R$" ? "R$ " : "") + Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (cur === "USDT" ? " USDT" : "");
-  const ago = R.st.beat ? Math.max(0, Math.round((R.st.now - R.st.beat) / 1000)) : null, real = R.st.mode === "real";
-  const tm = t => new Date(t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  let h = '<div class="hd"><span>🤖 ROBÔ AO VIVO · ' + (real ? '<b class="down">CONTA REAL</b>' : 'CONTA DE TESTE') + '</span><b>' + (w ? '<span class="up">● ligado</span>' : '<span class="mut">desligado</span>') + '</b></div>';
-  h += '<p class="mut" style="font-size:12px;margin:4px 0 8px">' + curStrat(a.id, cfg.tf).name + ' · ' + curTf().label + (ago != null ? ' · conferido há ' + (ago < 90 ? ago + ' s' : Math.round(ago / 60) + ' min') : ' · esperando a vigia começar') + '</p>';
-  if (R.open) {
-    const o = R.open, val = o.qty * px, r = val - o.quote, pct = (px / o.price - 1) * 100, up = r >= 0;
-    h += '<div style="display:flex;align-items:center;gap:10px"><span class="badge ' + (up ? "buy" : "sell") + '" style="background:' + (up ? "#1f9e6a" : "#d9414f") + ';color:#fff;padding:8px 12px;border-radius:10px;font-weight:900">COMPRADO</span>' +
-      '<div style="flex:1"><div style="font-size:22px;font-weight:900" class="' + (up ? "up" : "down") + '">' + money(r) + ' <span style="font-size:15px">(' + (pct >= 0 ? "+" : "") + pct.toFixed(2) + '%)</span></div>' +
-      '<div class="mut" style="font-size:12px">resultado agora, se vender neste preço</div></div></div>' +
-      '<div class="pnums" style="grid-template-columns:repeat(3,1fr)"><div><b style="font-size:14px">' + fmt(o.price, a) + '</b><span>Entrou ' + tm(o.t) + '</span></div><div><b style="font-size:14px">' + fmt(px, a) + '</b><span>Preço agora</span></div><div><b style="font-size:14px">' + (cur === "R$" ? "R$ " : "") + o.quote.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b><span>Investido</span></div></div>' +
-      (o.tp ? '<div class="row" style="font-size:13px;margin-top:6px"><span>🛡 Na Binance: <b class="up">alvo ' + fmt(o.tp, a) + '</b> · <b class="down">stop ' + fmt(o.sl, a) + '</b></span></div>' : '') +
-      '<p class="mut" style="font-size:12px;margin:6px 0 0">' + (o.tp ? "A Binance fecha sozinha no alvo ou no stop; o app também sai no sinal de saída." : "Vende sozinho quando sair o sinal de saída da estratégia.") + '</p>';
-  } else {
-    h += '<div style="display:flex;align-items:center;gap:10px"><span style="background:#263042;padding:8px 12px;border-radius:10px;font-weight:900;color:#b9c1cf">FORA</span><div style="flex:1;font-size:14px">' + (w ? "Aguardando o próximo <b>sinal de compra</b> para entrar." : "Robô desligado neste tempo gráfico.") + '</div></div>';
-  }
-  { const t0 = new Date(); t0.setHours(0, 0, 0, 0); const td = R.trips.filter(t => t.sell.t >= t0.getTime()), pnl = td.reduce((s, t) => s + t.r, 0);
-    let seq = 0; for (const t of td) { if (t.r < 0) seq++; else break; }
-    const ml = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, ms = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3, paused = (ml > 0 && -pnl >= ml) || (ms > 0 && seq >= ms);
-    h += '<div class="row" style="font-size:13px;margin-top:8px"><span>Hoje: <b class="' + (pnl >= 0 ? "up" : "down") + '">' + money(pnl) + '</b>' + (ml > 0 ? ' <span class="mut">(limite −' + ml + ')</span>' : '') + '</span>' + (paused ? '<b class="down">⏸ pausado até amanhã</b>' : '<span class="mut">' + td.length + ' operações</span>') + '</div>'; }
-  if (R.trips.length) {
-    const tot = R.trips.reduce((s, t) => s + t.r, 0), wins = R.trips.filter(t => t.r > 0).length;
-    h += '<div class="row" style="font-size:13px;margin-top:8px"><span>Operações fechadas: <b>' + R.trips.length + '</b> · <span class="up">' + wins + ' ganhos</span> · <span class="down">' + (R.trips.length - wins) + ' perdas</span></span><b class="' + (tot >= 0 ? "up" : "down") + '">' + money(tot) + '</b></div>';
-    for (const t of R.trips.slice(0, 3)) h += '<div class="row" style="font-size:12px"><span class="mut">' + tm(t.buy.t) + ' → ' + tm(t.sell.t) + ' · ' + (t.sell.why || "") + '</span><span class="' + (t.r >= 0 ? "up" : "down") + '">' + money(t.r) + ' (' + (t.pct >= 0 ? "+" : "") + t.pct.toFixed(2) + '%)</span></div>';
-  }
-  if (R.err && (!R.mine[0] || R.err.t > R.mine[0].t)) h += '<p class="down" style="font-size:12px;margin:6px 0 0">⚠️ Último erro (' + tm(R.err.t) + '): ' + R.err.why + '</p>';
-  el.innerHTML = h;
+const livePx = {};
+function robotRows() {
+  const rs = cfg.watch.filter(w => w.robot && w.src === "binance");
+  const a = curAsset(); if (a.crypto && !rs.some(w => w.id === a.id)) { const R = robotState(a); if (R.open) rs.push({ id: a.id, tf: cfg.tf, off: true }); }
+  return rs;
 }
+function renderLive() {
+  const el = document.getElementById("live");
+  if (!(window.Android && Android.robotStatus)) { el.style.display = "none"; return; }
+  const rs = robotRows(); if (!rs.length) { el.style.display = "none"; return; }
+  el.style.display = "";
+  const inf = brkInfo(), real = inf.mode === "real", t0 = new Date(); t0.setHours(0, 0, 0, 0);
+  const ml = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, ms = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
+  const money = (v, a) => { const c = brkQuoteCur(a); return (v >= 0 ? "+" : "−") + (c === "R$" ? "R$ " : "") + Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  let tot = 0, opens = 0, rows = "";
+  for (const w of rs) {
+    const a = assets().find(x => x.id === w.id); if (!a) continue;
+    const R = robotState(a, w.tf), td = R.trips.filter(t => t.sell.t >= t0.getTime()), pnl = td.reduce((s, t) => s + t.r, 0); tot += pnl;
+    let seq = 0; for (const t of td) { if (t.r < 0) seq++; else break; }
+    const paused = (ml > 0 && -pnl >= ml) || (ms > 0 && seq >= ms), cur = w.id === cfg.asset && w.tf === cfg.tf;
+    const px = w.id === cfg.asset && data && data.candles.length ? data.candles[data.candles.length - 1].c : livePx[w.id];
+    let pill;
+    if (R.open) { opens++; const o = R.open, pct = px ? (px / o.price - 1) * 100 : null, up = pct == null || pct >= 0;
+      pill = '<span class="pill ' + (up ? "pg" : "pr") + '">COMPRADO ' + (pct == null ? "" : (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%") + '</span>';
+    } else pill = '<span class="pill">' + (w.off ? "DESLIGADO" : paused ? "⏸ PAUSADO" : "FORA") + '</span>';
+    let sub2 = (TFS.find(t => t.id === w.tf) || {}).label + ' · ' + (td.length ? td.length + ' op. hoje' : 'sem operações hoje');
+    if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · 🛑 ' + fmt(R.open.sl, a) : '');
+    rows += '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b><small>' + sub2 + '</small></div>' +
+      '<div class="rt">' + pill + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small></div></div>';
+  }
+  const q = brkQuoteCur(curAsset()) || "USDT";
+  el.innerHTML = '<div class="hd"><span>🤖 ROBÔS · ' + (real ? '<b class="down">CONTA REAL</b>' : 'CONTA DE TESTE') + ' · ' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b></div>' + rows;
+  el.querySelectorAll(".lrow").forEach(r => r.onclick = () => { if (r.dataset.id !== cfg.asset || r.dataset.tf !== cfg.tf) openFrom(r.dataset.id, r.dataset.tf); });
+}
+// preço ao vivo das outras criptos com robô comprado
+setInterval(async () => {
+  if (document.hidden || !(window.Android && Android.robotStatus)) return;
+  const ids = robotRows().map(w => w.id).filter(id => id !== cfg.asset && robotState(assets().find(x => x.id === id) || { id }).open);
+  if (!ids.length) return;
+  try { const r = JSON.parse(await httpGet("https://api.binance.com/api/v3/ticker/price?symbols=" + encodeURIComponent(JSON.stringify(ids)))); for (const p of r) livePx[p.symbol] = +p.price; renderLive(); } catch (e) {}
+}, 10000);
 setInterval(() => { if (!document.hidden) renderLive(); }, 5000);
 function render() {
   draw(); renderLive();
@@ -1172,7 +1188,7 @@ document.getElementById("brkQuote").onchange = e => { const v = +e.target.value;
 document.getElementById("brkOco").onchange = e => { cfg.robotOco = e.target.checked; syncWatch(); };
 document.getElementById("brkMaxLoss").onchange = e => { cfg.robotMaxLoss = Math.max(0, +e.target.value || 0); syncWatch(); };
 document.getElementById("brkMaxLossAll").onchange = e => { cfg.robotMaxLossAll = Math.max(0, +e.target.value || 0); syncWatch(); };
-document.getElementById("brkMaxOpen").onchange = e => { cfg.robotMaxOpen = Math.max(0, Math.round(+e.target.value || 0)); syncWatch(); };
+document.getElementById("brkMaxOpen").onchange = e => { cfg.robotMaxOpen = Math.min(6, Math.max(0, Math.round(+e.target.value || 0))); syncWatch(); };
 document.getElementById("brkMaxLosses").onchange = e => { cfg.robotMaxLosses = Math.max(0, Math.round(+e.target.value || 0)); syncWatch(); };
 document.getElementById("brkPanic").onclick = () => { const a = curAsset(); if (!a.crypto) return;
   cfg.watch.forEach(w => { if (w.id === a.id) w.robot = false; }); syncWatch(); brkMsg("🚨 Cancelando alvo/stop e vendendo tudo…");
@@ -1187,7 +1203,7 @@ document.getElementById("brkRobot").onclick = () => {
   let w = cfg.watch.find(x => x.id === a.id && x.tf === cfg.tf);
   if (!w) { w = { id: a.id, tf: cfg.tf, name: a.name, src: "binance", dec: 2, b3: false }; cfg.watch.push(w); }
   w.robot = !w.robot; syncWatch(); renderRobot();
-  brkMsg(w.robot ? "🤖 Robô ligado. Ele compra no sinal de entrada da estratégia <b>" + curStrat(a.id, cfg.tf).name + "</b> e vende no sinal de saída, mesmo com o app fechado. Na Binance à vista ele só compra e vende (não opera vendido)." : "Robô desligado. A vigia continua avisando.");
+  brkMsg(w.robot ? "🤖 Robô ligado em " + parts(a).t + " · " + curTf().label + ". Ele entra e sai sozinho, mesmo com o app fechado." : "Robô desligado.");
 };
 
 function syncWatch() {
@@ -1308,10 +1324,10 @@ function showOpt() {
       '<div class="rt"><b class="up">+' + (r.a.futures ? Math.round(p.sum) + ' pts' : p.sum.toFixed(1) + '%') + '</b><small>' + p.wins + '✓ ' + (p.n - p.wins) + '✗</small></div></div>';
   });
   if (optAll && rows.length) {
-    const N = cfg.robotTopN || 5, q = cfg.repQuote || "USDT";
+    const N = Math.min(6, cfg.robotTopN || 5), q = cfg.repQuote || "USDT";
     h += '<div class="card" style="margin:10px 0 6px;padding:10px;border-color:#2b6cff"><div class="row" style="align-items:center;gap:8px"><b style="font-size:14px">🤖 Ligar robô nas melhores</b>' +
-      '<div class="seg" id="topN">' + [3, 5, 10].map(n => '<button data-n="' + n + '" class="' + (n === N ? "on" : "") + '">' + n + '</button>').join("") + '</div></div>' +
-      '<p class="mut" style="font-size:12px;margin:6px 0">Escolhe as ' + N + ' criptos em ' + q + ' que mais acertaram (com lucro) e liga o robô em todas, cada uma com a sua estratégia, tempo e saída.</p>' +
+      '<div class="seg" id="topN">' + [3, 5, 6].map(n => '<button data-n="' + n + '" class="' + (n === N ? "on" : "") + '">' + n + '</button>').join("") + '</div></div>' +
+      '<p class="mut" style="font-size:12px;margin:6px 0">Escolhe até ' + N + ' criptos em ' + q + ' com <b>75% ou mais</b> de acerto e lucro e liga o robô em todas, cada uma com a sua estratégia, tempo e saída.</p>' +
       '<button class="primary" id="topGo" style="margin:0;height:42px">🤖 Ligar nas ' + N + ' melhores</button></div>';
   }
   if (rows.length) h += '<p class="mut" style="font-size:11px;margin:8px 0 0">✔ = deu lucro nos períodos de 30, 60 e 90 dias. "Xd" = o histórico grátis só cobria X dias nesse tempo gráfico. O passado não garante o futuro.</p>';
@@ -1320,11 +1336,11 @@ function showOpt() {
   optOut.querySelectorAll("#topN [data-n]").forEach(b => b.onclick = () => { cfg.robotTopN = +b.dataset.n; store.set("cfg", cfg); showOpt(); });
   const go = document.getElementById("topGo");
   if (go) go.onclick = () => {
-    const N = cfg.robotTopN || 5, q = cfg.repQuote || "USDT", seen = new Set();
-    const pool = valid.filter(r => r.per[D].sum > 0 && r.a.crypto && r.a.id.endsWith(q)), big = pool.filter(r => r.per[D].n >= 8);
+    const N = Math.min(6, cfg.robotTopN || 5), q = cfg.repQuote || "USDT", seen = new Set();
+    const pool = valid.filter(r => r.per[D].sum > 0 && r.a.crypto && r.a.id.endsWith(q) && hit(r) >= 75), big = pool.filter(r => r.per[D].n >= 8);
     const pick = (big.length >= N ? big : pool).sort((x, y) => hit(y) - hit(x) || y.per[D].sum - x.per[D].sum)
       .filter(r => !seen.has(r.a.id) && seen.add(r.a.id)).slice(0, N);
-    if (!pick.length) { go.insertAdjacentHTML("afterend", '<p class="down" style="font-size:12px">Nenhuma cripto em ' + q + ' deu lucro.</p>'); return; }
+    if (!pick.length) { go.insertAdjacentHTML("afterend", '<p class="down" style="font-size:12px">Nenhuma cripto em ' + q + ' chegou a 75% de acerto com lucro neste período.</p>'); return; }
     cfg.strat = cfg.strat || {}; cfg.exitBy = cfg.exitBy || {};
     for (const r of pick) { const k = r.a.id + "|" + r.tf.id; cfg.strat[k] = r.st.id; cfg.exitBy[k] = r.ex;
       let w = cfg.watch.find(x => x.id === r.a.id && x.tf === r.tf.id);
