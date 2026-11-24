@@ -27,7 +27,7 @@ data class Watch(
     val fast: Int, val slow: Int, val cross: Boolean, val brk: Boolean, val dec: Int, val b3: Boolean,
     val strat: JSONObject, val stratName: String, val exit: String, val short: Boolean, val target: Double = 0.0,
     val robot: Boolean = false, val robotQuote: Double = 0.0, val cur: String = "R$ ",
-    val maxLoss: Double = 0.0, val maxLosses: Int = 0, val oco: Boolean = true,
+    val maxLoss: Double = 0.0, val maxLosses: Int = 0, val oco: Boolean = true, val maxLossAll: Double = 0.0, val maxOpen: Int = 0,
 )
 
 object Watches {
@@ -42,7 +42,7 @@ object Watches {
                 o.optJSONObject("strat") ?: JSONObject().put("type", "ma").put("f", o.optInt("fast", 9)).put("s", o.optInt("slow", 21)),
                 o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false), o.optDouble("target", 0.0),
                 o.optBoolean("robot", false), o.optDouble("robotQuote", 0.0), o.optString("cur", if (o.optString("id").endsWith("USDT")) "" else "R$ "),
-                o.optDouble("maxLoss", 0.0), o.optInt("maxLosses", 0), o.optBoolean("oco", true))
+                o.optDouble("maxLoss", 0.0), o.optInt("maxLosses", 0), o.optBoolean("oco", true), o.optDouble("maxLossAll", 0.0), o.optInt("maxOpen", 0))
         }
     }.getOrDefault(emptyList())
 
@@ -250,6 +250,8 @@ class MonitorService : Service() {
             if (e.entry && e.dir > 0 && !Broker.inPosition(this, w.id)) {
                 val (pnl, seq) = Broker.today(this, w.id); val day = java.text.SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())
                 if (w.maxLoss > 0 && -pnl >= w.maxLoss) { send("robo|pausa|${w.id}|$day", "⏸ Robô pausado hoje · ${w.name}", "Chegou no limite de perda do dia (${fmtQ(-pnl, w)}). Volta a operar amanhã."); return }
+                if (w.maxLossAll > 0 && -Broker.todayAll(this) >= w.maxLossAll) { send("robo|pausaTodos|$day", "⏸ Todos os robôs pausados hoje", "A soma das perdas de hoje chegou no limite geral (${fmtQ(w.maxLossAll, w)}). Voltam a operar amanhã."); return }
+                if (w.maxOpen > 0 && Broker.openCount(this) >= w.maxOpen) { send("$key|cheio", "⏳ Robô não entrou · ${w.name}", "Já há ${w.maxOpen} robôs comprados ao mesmo tempo (o máximo que você escolheu)."); return }
                 if (w.maxLosses > 0 && seq >= w.maxLosses) { send("robo|pausa2|${w.id}|$day", "⏸ Robô pausado hoje · ${w.name}", "Foram $seq perdas seguidas. Volta a operar amanhã."); return }
                 val o = Broker.buy(this, w.id, w.robotQuote, w.stratName)
                 Broker.setPosition(this, w.id, true)

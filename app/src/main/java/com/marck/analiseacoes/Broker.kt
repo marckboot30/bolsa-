@@ -183,6 +183,16 @@ object Broker {
         sp(ctx).edit().putString("log", a.toString()).apply()
     }
 
+    /** Quantos robôs estão comprados agora neste modo. */
+    fun openCount(ctx: Context): Int { val pre = "pos_${mode(ctx)}_"; return sp(ctx).all.count { it.key.startsWith(pre) && it.value == true } }
+
+    /** Resultado de hoje somando todas as criptos, neste modo. */
+    fun todayAll(ctx: Context): Double {
+        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); val m = mode(ctx)
+        val syms = HashSet<String>(); for (i in 0 until a.length()) { val o = a.getJSONObject(i); if (o.optString("mode", "demo") == m) syms.add(o.optString("symbol")) }
+        return syms.sumOf { today(ctx, it).first }
+    }
+
     /** Resultado de hoje (compra → venda) e perdas seguidas de hoje, neste modo e ativo. */
     fun today(ctx: Context, symbol: String): Pair<Double, Int> {
         val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); val m = mode(ctx)
