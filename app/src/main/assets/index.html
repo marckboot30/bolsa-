@@ -74,6 +74,7 @@
   .star { width: 38px; height: 38px; border: 0; background: none; font-size: 20px; color: #4a5568; flex: none; }
   .star.fav { color: #ffd166; }
   .gh { font-size: 12px; font-weight: 800; color: #8a94a6; text-transform: uppercase; letter-spacing: .5px; margin: 12px 8px 4px; }
+  .hidden { display: none !important; }
   .sheet h2 { margin: 0 0 12px; font-size: 18px; }
   .sheet label { display: block; font-size: 13px; color: #8a94a6; margin: 12px 0 6px; }
   #robotCard input, #robotCard label { display: block; } #robotCard label { font-size: 13px; color: #b9c1cf; margin: 8px 0 4px; }
@@ -87,7 +88,7 @@
 <header>
   <select id="asset" class="sel" style="display:none"></select><button class="abtn" id="assetBtn"></button>
   <button class="iconbtn" id="watchBtn" title="Vigiar no fundo">🔕</button>
-  <button class="iconbtn" id="refreshBtn" title="Atualizar">⟳</button>
+  <button class="iconbtn" id="menuBtn" title="Mostrar / esconder" style="font-size:22px;font-weight:900">⋮</button>
   <button class="iconbtn" id="cfgBtn" title="Ajustes">⚙</button>
 </header>
 <div class="tf" id="tfs"></div>
@@ -103,17 +104,17 @@
 <div class="perf" id="live" style="display:none"></div>
 <div class="perf" id="perf"><div class="hd"><span>DESEMPENHO DA ANÁLISE</span><b>—</b></div></div>
 <div class="cards">
-  <div class="card wide"><h3 id="sigTitle">Sinal da estratégia</h3><div class="signal"><span id="sigBadge" class="badge none">—</span><p id="sigText" style="margin:0"></p></div></div>
-  <div class="card"><h3>Tendência</h3><div class="v" id="trend">—</div><p id="trendTxt"></p></div>
-  <div class="card"><h3>Último candle</h3><div class="v" id="candle">—</div><p id="candleTxt"></p></div>
-  <div class="card wide"><h3>Máximas e mínimas</h3>
+  <div class="card wide" id="sigCard"><h3 id="sigTitle">Sinal da estratégia</h3><div class="signal"><span id="sigBadge" class="badge none">—</span><p id="sigText" style="margin:0"></p></div></div>
+  <div class="card" id="trendCard"><h3>Tendência</h3><div class="v" id="trend">—</div><p id="trendTxt"></p></div>
+  <div class="card" id="candleCard"><h3>Último candle</h3><div class="v" id="candle">—</div><p id="candleTxt"></p></div>
+  <div class="card wide" id="hlCard"><h3>Máximas e mínimas</h3>
     <div class="row"><span>Máxima do dia</span><b id="dayHi">—</b></div>
     <div class="row"><span>Mínima do dia</span><b id="dayLo">—</b></div>
     <div class="row"><span>Máxima de ontem</span><span id="prevHi">—</span></div>
     <div class="row"><span>Mínima de ontem</span><span id="prevLo">—</span></div>
     <p id="hiloTxt"></p>
   </div>
-  <div class="card wide"><h3>Teste no passado (detalhes)</h3><div id="bt"></div></div>
+  <div class="card wide" id="btCard"><h3>Teste no passado (detalhes)</h3><div id="bt"></div></div>
   <div class="card wide" id="robotCard"><h3>🤖 Robô na Binance</h3>
     <div class="tf" id="brkModes" style="padding:0 0 6px"></div>
     <div id="brkWarn"></div>
@@ -127,6 +128,12 @@
     <label>Valor por operação</label><input type="number" id="brkQuote" min="1" step="1">
     <div style="display:flex;gap:6px;margin-top:8px"><button class="chip" id="brkBal" style="flex:1">Ver saldo</button><button class="chip" id="brkBuy" style="flex:1">Comprar agora</button><button class="chip" id="brkSell" style="flex:1">Vender tudo</button></div>
     <button class="primary" id="brkRobot" style="margin-top:10px">🤖 Ligar robô neste ativo</button>
+    <h3 style="margin-top:14px">🛡 Proteção</h3>
+    <div class="sw" style="margin-top:4px"><span>Colocar alvo e stop direto na Binance (fecha mesmo com o celular desligado)</span><input type="checkbox" id="brkOco"></div>
+    <div style="display:flex;gap:8px"><div style="flex:1"><label>Perda máxima por dia</label><input type="number" id="brkMaxLoss" min="0" step="1"></div>
+    <div style="flex:1"><label>Parar após perdas seguidas</label><input type="number" id="brkMaxLosses" min="0" max="20" step="1"></div></div>
+    <p class="mut" style="font-size:12px;margin:4px 0 0">Ao bater um desses limites, o robô para de comprar até o dia seguinte. Use 0 para desligar.</p>
+    <button class="primary" id="brkPanic" style="margin-top:10px;background:#d9414f">🚨 Vender tudo e desligar o robô</button>
     <div id="brkOut" style="margin-top:8px"></div>
     <h3 style="margin-top:12px">Últimas ordens</h3><div id="brkLog"></div>
   </div>
@@ -149,6 +156,12 @@
   <p class="mut" style="font-size:12px;margin:6px 0 0" id="optTfNote"></p>
   <button class="primary" id="optRun">Analisar</button>
   <div id="optOut" style="margin-top:14px"></div>
+</div></div>
+<div class="sheet" id="menu"><div class="box">
+  <div class="top" style="display:flex;align-items:center;gap:8px"><h2 style="flex:1;margin:0">O que mostrar</h2><button class="iconbtn" id="menuClose">✕</button></div>
+  <button class="chip" id="refreshBtn" style="width:100%;height:42px;margin:10px 0 4px">⟳ Atualizar agora</button>
+  <label>No gráfico</label><div id="menuChart"></div>
+  <label>Na tela</label><div id="menuCards"></div>
 </div></div>
 <div class="sheet" id="pick"><div class="box">
   <div class="top"><h2>Escolher ativo</h2><button class="iconbtn" id="pickClose">✕</button></div>
@@ -374,6 +387,13 @@ const store = {
   set(k, v) { try { localStorage.setItem("aa." + k, JSON.stringify(v)); } catch (e) {} },
 };
 const cfg = Object.assign({ asset: "^BVSP", tf: "5m", fast: 9, slow: 21, alert: true, brk: true, auto: true, extra: [], watch: [], strat: {}, goalOn: true, goalCap: 150, goalPct: 30 }, store.get("cfg", {}));
+// ================= O QUE MOSTRAR (menu ⋮) =================
+const VIEW_CHART = [["medias", "Médias móveis", true], ["dayhl", "Máxima e mínima do dia", true], ["prevhl", "Máxima e mínima de ontem", true], ["fh", "Linhas da 1ª hora", true],
+  ["pats", "Padrões de candle (EA, EB, M, EC)", false], ["ops", "Entradas e saídas da análise (▲ ▼ ✕)", true], ["robo", "Ordens, alvo e stop do robô", true], ["legend", "Legenda embaixo do gráfico", false]];
+const VIEW_CARDS = [["live", "🤖 Robô ao vivo", true, "live"], ["perf", "Desempenho da análise", true, "perf"], ["sig", "Operação da análise", true, "sigCard"],
+  ["trend", "Tendência e último candle", false, "trendCard,candleCard"], ["hl", "Máximas e mínimas", false, "hlCard"], ["bt", "Teste no passado (detalhes)", false, "btCard"],
+  ["robotCfg", "Ajustes do robô na Binance", true, "robotCard"], ["watch", "Lista da vigia", false, "watchCard"]];
+function showOpts() { const v = cfg.view || {}, o = {}; for (const [k, , d] of VIEW_CHART.concat(VIEW_CARDS)) o[k] = v[k] == null ? d : v[k]; return o; }
 function fillAssets(sel) {
   const groups = {};
   for (const a of assets()) { const g = a.grp || "Outros"; if (!groups[g]) { groups[g] = document.createElement("optgroup"); groups[g].label = g; sel.appendChild(groups[g]); }
@@ -764,6 +784,7 @@ let view = { n: 70, end: null }, data = null, an = null;
 function fmt(v, asset) { if (v == null || !isFinite(v)) return "—"; const a = asset || curAsset(); const dec = a.futures ? 0 : (a.crypto && Math.abs(v) < 10 ? 4 : 2); return v.toLocaleString("pt-BR", { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
 function sizeCanvas() { const w = cv.clientWidth, h = Math.round(Math.min(window.innerHeight * .52, w * 1.15)); cv.style.height = h + "px"; const dpr = window.devicePixelRatio || 1; cv.width = w * dpr; cv.height = h * dpr; g.setTransform(dpr, 0, 0, dpr, 0, 0); }
 function draw() {
+  const V = showOpts();
   const W = cv.clientWidth, H = cv.clientHeight; g.clearRect(0, 0, W, H);
   if (!data || !data.candles.length) { g.fillStyle = "#8a94a6"; g.font = "14px system-ui"; g.textAlign = "center"; g.fillText("Carregando…", W / 2, H / 2); return; }
   const cs = data.candles, asset = curAsset(), tf = curTf();
@@ -794,12 +815,13 @@ function draw() {
     g.strokeStyle = col; g.lineWidth = 1.2; g.setLineDash(dash || [6, 4]); g.beginPath(); g.moveTo(0, y); g.lineTo(W - padR, y); g.stroke(); g.setLineDash([]);
     g.font = "bold 10px system-ui"; g.textAlign = "left"; g.textBaseline = "bottom"; g.fillStyle = col; g.fillText(label, 4, y - 2);
   }
-  if (prevHL) { hline(prevHL.h, "#7d8796", "MÁX ONTEM", [2, 4]); hline(prevHL.l, "#7d8796", "MÍN ONTEM", [2, 4]); }
-  if (dayHL) { hline(dayHL.h, "#26c281", "MÁX DO DIA"); hline(dayHL.l, "#ff5468", "MÍN DO DIA"); }
-  if (tf.intraday && an.st.type === "h1") { const r = firstHour(cs.slice(0, end), an.st.win || 60).fh[end - 1];
+  if (prevHL && V.prevhl) { hline(prevHL.h, "#7d8796", "MÁX ONTEM", [2, 4]); hline(prevHL.l, "#7d8796", "MÍN ONTEM", [2, 4]); }
+  if (dayHL && V.dayhl) { hline(dayHL.h, "#26c281", "MÁX DO DIA"); hline(dayHL.l, "#ff5468", "MÍN DO DIA"); }
+  if (tf.intraday && an.st.type === "h1" && V.fh) { const r = firstHour(cs.slice(0, end), an.st.win || 60).fh[end - 1];
     if (r && cs[r.end].day === lastDay) { hline(r.hi, "#4da3ff", "MÁX 1ª HORA" + (r.trend === 1 ? " ↑" : "")); hline(r.lo, "#ff9f43", "MÍN 1ª HORA" + (r.trend === -1 ? " ↓" : "")); } }
   { const op = an.sim.open, tg = goalPts(curAsset()); if (op && tg) hline(op.entry + op.dir * tg, "#ffd166", "🎯 META"); }
-  if (asset.crypto && window.Android && Android.robotStatus) { const R = robotState(asset); if (R.open) hline(R.open.price, "#c084fc", "🤖 ENTRADA DO ROBÔ " + fmt(R.open.price, asset), [6, 3]);
+  if (asset.crypto && window.Android && Android.robotStatus && V.robo) { const R = robotState(asset); if (R.open) { hline(R.open.price, "#c084fc", "🤖 ENTRADA DO ROBÔ " + fmt(R.open.price, asset), [6, 3]);
+      if (R.open.tp) hline(R.open.tp, "#26c281", "🤖 ALVO " + fmt(R.open.tp, asset), [2, 2]); if (R.open.sl) hline(R.open.sl, "#ff5468", "🤖 STOP " + fmt(R.open.sl, asset), [2, 2]); }
     const span = tf.min * 60000;
     for (const o of R.mine) { const i = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span); if (i < start || i >= end || o.price > hi || o.price < lo) continue;
       const x = X(i), y = Y(o.price); g.beginPath(); g.arc(x, y, 6, 0, 7); g.fillStyle = o.side === "BUY" ? "#1f9e6a" : "#d9414f"; g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.stroke();
@@ -812,22 +834,22 @@ function draw() {
     const y1 = Y(Math.max(c.o, c.c)), y2 = Y(Math.min(c.o, c.c)); g.fillStyle = col; g.fillRect(x - bw / 2, y1, bw, Math.max(1, y2 - y1));
   }
   // médias
-  for (const [arr, col] of [[an.fast, "#ffc531"], [an.slow, "#a77bff"]]) {
+  for (const [arr, col] of V.medias ? [[an.fast, "#ffc531"], [an.slow, "#a77bff"]] : []) {
     g.strokeStyle = col; g.lineWidth = 1.8; g.beginPath(); let on = false;
     for (let i = start; i < end; i++) { if (arr[i] == null || (tf.intraday && i > start && cs[i].day !== cs[i - 1].day)) { on = false; continue; } on ? g.lineTo(X(i), Y(arr[i])) : g.moveTo(X(i), Y(arr[i])); on = true; }
     g.stroke();
   }
   // padrões de candle (só os fortes)
   g.font = "bold 9px system-ui"; g.textAlign = "center";
-  for (let i = start; i < end; i++) { const p = an.pats[i]; if (!p || !["EA", "EB", "M", "EC"].includes(p.k)) continue; const c = cs[i]; g.fillStyle = p.dir > 0 ? "#7fe3b6" : p.dir < 0 ? "#ff9aa6" : "#c9d1dd"; if (p.dir >= 0) { g.textBaseline = "top"; g.fillText(p.k, X(i), Y(c.l) + 3); } else { g.textBaseline = "bottom"; g.fillText(p.k, X(i), Y(c.h) - 3); } }
+  for (let i = start; V.pats && i < end; i++) { const p = an.pats[i]; if (!p || !["EA", "EB", "M", "EC"].includes(p.k)) continue; const c = cs[i]; g.fillStyle = p.dir > 0 ? "#7fe3b6" : p.dir < 0 ? "#ff9aa6" : "#c9d1dd"; if (p.dir >= 0) { g.textBaseline = "top"; g.fillText(p.k, X(i), Y(c.l) + 3); } else { g.textBaseline = "bottom"; g.fillText(p.k, X(i), Y(c.h) - 3); } }
   // sinais da estratégia (pequenos) e operações (entrada ▲▼, saída ✕, linha ligando)
-  for (const s of an.signals) {
+  for (const s of V.ops ? an.signals : []) {
     if (s.i < start || s.i >= end) continue; const c = cs[s.i], x = X(s.i);
     g.fillStyle = s.dir > 0 ? "rgba(38,194,129,.35)" : "rgba(255,84,104,.35)"; g.beginPath();
     if (s.dir > 0) { const y = Y(c.l) + 14; g.moveTo(x, y - 5); g.lineTo(x - 4, y + 2); g.lineTo(x + 4, y + 2); } else { const y = Y(c.h) - 14; g.moveTo(x, y + 5); g.lineTo(x - 4, y - 2); g.lineTo(x + 4, y - 2); }
     g.fill();
   }
-  const evs = an.sim.ev, opn = an.sim.open;
+  const evs = V.ops ? an.sim.ev : [], opn = V.ops ? an.sim.open : null;
   for (const e of evs) if (e.type === "exit" && e.i >= start && e.ei < end) {
     g.strokeStyle = e.r >= 0 ? "rgba(38,194,129,.8)" : "rgba(255,84,104,.8)"; g.lineWidth = 1.5; g.setLineDash([4, 3]);
     g.beginPath(); g.moveTo(X(Math.max(e.ei, start)), Y(e.entry)); g.lineTo(X(Math.min(e.i, end - 1)), Y(e.price)); g.stroke(); g.setLineDash([]);
@@ -888,10 +910,15 @@ function renderLive() {
       '<div style="flex:1"><div style="font-size:22px;font-weight:900" class="' + (up ? "up" : "down") + '">' + money(r) + ' <span style="font-size:15px">(' + (pct >= 0 ? "+" : "") + pct.toFixed(2) + '%)</span></div>' +
       '<div class="mut" style="font-size:12px">resultado agora, se vender neste preço</div></div></div>' +
       '<div class="pnums" style="grid-template-columns:repeat(3,1fr)"><div><b style="font-size:14px">' + fmt(o.price, a) + '</b><span>Entrou ' + tm(o.t) + '</span></div><div><b style="font-size:14px">' + fmt(px, a) + '</b><span>Preço agora</span></div><div><b style="font-size:14px">' + (cur === "R$" ? "R$ " : "") + o.quote.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b><span>Investido</span></div></div>' +
-      '<p class="mut" style="font-size:12px;margin:6px 0 0">Vende sozinho quando sair o sinal de saída da estratégia.</p>';
+      (o.tp ? '<div class="row" style="font-size:13px;margin-top:6px"><span>🛡 Na Binance: <b class="up">alvo ' + fmt(o.tp, a) + '</b> · <b class="down">stop ' + fmt(o.sl, a) + '</b></span></div>' : '') +
+      '<p class="mut" style="font-size:12px;margin:6px 0 0">' + (o.tp ? "A Binance fecha sozinha no alvo ou no stop; o app também sai no sinal de saída." : "Vende sozinho quando sair o sinal de saída da estratégia.") + '</p>';
   } else {
     h += '<div style="display:flex;align-items:center;gap:10px"><span style="background:#263042;padding:8px 12px;border-radius:10px;font-weight:900;color:#b9c1cf">FORA</span><div style="flex:1;font-size:14px">' + (w ? "Aguardando o próximo <b>sinal de compra</b> para entrar." : "Robô desligado neste tempo gráfico.") + '</div></div>';
   }
+  { const t0 = new Date(); t0.setHours(0, 0, 0, 0); const td = R.trips.filter(t => t.sell.t >= t0.getTime()), pnl = td.reduce((s, t) => s + t.r, 0);
+    let seq = 0; for (const t of td) { if (t.r < 0) seq++; else break; }
+    const ml = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, ms = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3, paused = (ml > 0 && -pnl >= ml) || (ms > 0 && seq >= ms);
+    h += '<div class="row" style="font-size:13px;margin-top:8px"><span>Hoje: <b class="' + (pnl >= 0 ? "up" : "down") + '">' + money(pnl) + '</b>' + (ml > 0 ? ' <span class="mut">(limite −' + ml + ')</span>' : '') + '</span>' + (paused ? '<b class="down">⏸ pausado até amanhã</b>' : '<span class="mut">' + td.length + ' operações</span>') + '</div>'; }
   if (R.trips.length) {
     const tot = R.trips.reduce((s, t) => s + t.r, 0), wins = R.trips.filter(t => t.r > 0).length;
     h += '<div class="row" style="font-size:13px;margin-top:8px"><span>Operações fechadas: <b>' + R.trips.length + '</b> · <span class="up">' + wins + ' ganhos</span> · <span class="down">' + (R.trips.length - wins) + ' perdas</span></span><b class="' + (tot >= 0 ? "up" : "down") + '">' + money(tot) + '</b></div>';
@@ -1049,6 +1076,9 @@ function renderRobot() {
     : m === "testnet" ? "Crie em testnet.binance.vision (entra com a conta do GitHub)."
     : "Na Binance, entre em <b>Demo Trading</b> (demo.binance.com) → Gerenciamento de API → Criar chave. O dinheiro lá é de mentira.";
   const cur = brkQuoteCur(a); document.getElementById("brkQuote").value = cfg.robotQuote || 50;
+  document.getElementById("brkOco").checked = cfg.robotOco !== false; document.getElementById("brkMaxLoss").value = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10; document.getElementById("brkMaxLosses").value = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
+  document.getElementById("brkMaxLoss").previousElementSibling.textContent = "Perda máxima por dia" + (cur ? " (" + cur + ")" : "");
+  document.getElementById("brkPanic").disabled = !a.crypto;
   document.getElementById("brkQuote").previousElementSibling.textContent = "Valor por operação" + (cur ? " (" + cur + ")" : "");
   const rb = document.getElementById("brkRobot");
   if (!a.crypto) { rb.disabled = true; rb.textContent = "Por enquanto o robô opera só cripto na Binance"; rb.style.opacity = .5; }
@@ -1088,6 +1118,12 @@ document.getElementById("brkSave").onclick = () => {
 };
 document.getElementById("brkDel").onclick = () => { if (window.Android && Android.brokerClear) Android.brokerClear(); renderRobot(); brkMsg("Chave apagada deste modo."); };
 document.getElementById("brkQuote").onchange = e => { const v = +e.target.value; if (v > 0) { cfg.robotQuote = v; syncWatch(); renderRobot(); } };
+document.getElementById("brkOco").onchange = e => { cfg.robotOco = e.target.checked; syncWatch(); };
+document.getElementById("brkMaxLoss").onchange = e => { cfg.robotMaxLoss = Math.max(0, +e.target.value || 0); syncWatch(); };
+document.getElementById("brkMaxLosses").onchange = e => { cfg.robotMaxLosses = Math.max(0, Math.round(+e.target.value || 0)); syncWatch(); };
+document.getElementById("brkPanic").onclick = () => { const a = curAsset(); if (!a.crypto) return;
+  cfg.watch.forEach(w => { if (w.id === a.id) w.robot = false; }); syncWatch(); brkMsg("🚨 Cancelando alvo/stop e vendendo tudo…");
+  brk("panic", a.id).then(o => { brkMsg(o.none ? "Robô desligado. Não tinha nada para vender." : '<b class="down">Vendeu tudo</b> (' + o.qty + ' a ' + fmt(o.price, a) + ') e desligou o robô de ' + a.name + '.'); liveLogT = 0; renderBrkLog(); renderLive(); }).catch(e => brkMsg(e.message, true)); };
 document.getElementById("brkBal").onclick = () => { brkMsg("Buscando saldo…"); brk("account").then(showBalances).catch(e => brkMsg(e.message, true)); };
 document.getElementById("brkBuy").onclick = () => { const a = curAsset(); brkMsg("Enviando compra…");
   brk("buy", a.id, cfg.robotQuote || 50).then(o => { brkMsg('<b class="up">Comprou</b> ' + o.qty + ' a ' + fmt(o.price, a) + '.'); renderBrkLog(); }).catch(e => { brkMsg(e.message, true); }); };
@@ -1103,7 +1139,7 @@ document.getElementById("brkRobot").onclick = () => {
 
 function syncWatch() {
   store.set("cfg", cfg);
-  const list = cfg.watch.map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: curExit(w.id, w.tf), short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)), robot: !!w.robot, robotQuote: cfg.robotQuote || 50 }); });
+  const list = cfg.watch.map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: curExit(w.id, w.tf), short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)), robot: !!w.robot, robotQuote: cfg.robotQuote || 50, oco: cfg.robotOco !== false, maxLoss: cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, maxLosses: cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3 }); });
   if (window.Android && Android.setWatch) Android.setWatch(JSON.stringify(list));
   renderWatch();
 }
@@ -1295,6 +1331,24 @@ async function refresh(keepView) {
   } catch (e) { statusEl.textContent = "Não consegui carregar: " + e.message + ". Verifique a internet."; }
   loading = false;
 }
+// ================= MENU ⋮ (o que mostrar) =================
+function applyView() {
+  const V = showOpts();
+  for (const [k, , , ids] of VIEW_CARDS) for (const id of ids.split(",")) { const el = document.getElementById(id); if (el) el.classList.toggle("hidden", !V[k]); }
+  document.getElementById("legend").classList.toggle("hidden", !V.legend);
+}
+function renderMenu() {
+  const V = showOpts();
+  const mk = (box, list) => { box.innerHTML = ""; for (const [k, label] of list) { const r = document.createElement("div"); r.className = "sw";
+    r.innerHTML = "<span>" + label + "</span>"; const c = document.createElement("input"); c.type = "checkbox"; c.checked = V[k];
+    c.onchange = () => { cfg.view = Object.assign({}, cfg.view, { [k]: c.checked }); store.set("cfg", cfg); applyView(); if (data) render(); };
+    r.appendChild(c); box.appendChild(r); } };
+  mk(document.getElementById("menuChart"), VIEW_CHART); mk(document.getElementById("menuCards"), VIEW_CARDS);
+}
+document.getElementById("menuBtn").onclick = () => { renderMenu(); document.getElementById("menu").classList.add("open"); };
+document.getElementById("menuClose").onclick = () => document.getElementById("menu").classList.remove("open");
+document.getElementById("menu").addEventListener("click", e => { if (e.target.id === "menu") e.target.classList.remove("open"); });
+
 // ================= ESCOLHA DE ATIVO =================
 const PICK_TABS = [["fav", "⭐ Favoritos"], ["all", "Todos"], ["idx", "📈 Índice"], ["cry", "₿ Cripto"], ["b3", "🇧🇷 B3"], ["us", "🇺🇸 EUA"]];
 let pickTab = null;
@@ -1347,12 +1401,12 @@ document.getElementById("pickQ").addEventListener("input", renderPick);
 function buildUi() {
   const sel = document.getElementById("asset"); sel.innerHTML = "";
   fillAssets(sel);
-  renderWatch(); renderAssetBtn();
+  renderWatch(); renderAssetBtn(); applyView();
   sel.value = cfg.asset; sel.onchange = () => { cfg.asset = sel.value; store.set("cfg", cfg); data = null; stopStream(); prevPrice = null; draw(); refresh(); };
   const box = document.getElementById("tfs"); box.innerHTML = "";
   for (const t of TFS) { const b = document.createElement("button"); b.className = "chip" + (t.id === cfg.tf ? " on" : ""); b.textContent = t.label; b.onclick = () => { cfg.tf = t.id; store.set("cfg", cfg); buildUi(); data = null; stopStream(); draw(); refresh(); }; box.appendChild(b); }
 }
-document.getElementById("refreshBtn").onclick = () => refresh(true);
+document.getElementById("refreshBtn").onclick = () => { document.getElementById("menu").classList.remove("open"); refresh(true); };
 const sheet = document.getElementById("sheet");
 document.getElementById("cfgBtn").onclick = () => {
   document.getElementById("cfgFast").value = cfg.fast; document.getElementById("cfgSlow").value = cfg.slow; document.getElementById("cfgAdd").value = "";

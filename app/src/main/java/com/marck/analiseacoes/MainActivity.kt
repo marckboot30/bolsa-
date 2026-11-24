@@ -110,7 +110,8 @@ class MainActivity : Activity() {
                     when (action) {
                         "account" -> Broker.account(this@MainActivity).toString()
                         "buy" -> Broker.buy(this@MainActivity, symbol, amount, "compra manual").also { Broker.setPosition(this@MainActivity, symbol, true) }.toString()
-                        "sell" -> (Broker.sellAll(this@MainActivity, symbol, "venda manual")?.toString() ?: "{\"none\":true}").also { Broker.setPosition(this@MainActivity, symbol, false) }
+                        "panic" -> { Broker.cancelAll(this@MainActivity, symbol); (Broker.sellAll(this@MainActivity, symbol, "🚨 venda de pânico")?.toString() ?: "{\"none\":true}").also { Broker.setPosition(this@MainActivity, symbol, false) } }
+                        "sell" -> { Broker.cancelAll(this@MainActivity, symbol); (Broker.sellAll(this@MainActivity, symbol, "venda manual")?.toString() ?: "{\"none\":true}").also { Broker.setPosition(this@MainActivity, symbol, false) } }
                         else -> "{}"
                     }
                 } catch (e: Exception) { ok = false; e.message ?: e.javaClass.simpleName }

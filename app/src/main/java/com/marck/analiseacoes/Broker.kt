@@ -109,21 +109,22 @@ object Broker {
         return JSONObject().put("canTrade", a.optBoolean("canTrade", true)).put("balances", out).put("mode", mode(ctx))
     }
 
-    private class Sym(val base: String, val quote: String, val step: BigDecimal, val minQty: BigDecimal, val minNotional: Double)
+    private class Sym(val base: String, val quote: String, val step: BigDecimal, val minQty: BigDecimal, val minNotional: Double, val tick: BigDecimal)
     private val syms = HashMap<String, Sym>()
 
     private fun sym(ctx: Context, symbol: String): Sym {
         syms[symbol]?.let { return it }
         val mode = mode(ctx)
         val s = JSONObject(http("GET", base(mode) + "/api/v3/exchangeInfo?symbol=" + symbol, null)).getJSONArray("symbols").getJSONObject(0)
-        var step = BigDecimal("0.00000001"); var minQty = BigDecimal.ZERO; var minN = 0.0
+        var step = BigDecimal("0.00000001"); var minQty = BigDecimal.ZERO; var minN = 0.0; var tick = BigDecimal("0.01")
         val f = s.getJSONArray("filters")
         for (i in 0 until f.length()) { val x = f.getJSONObject(i)
             when (x.getString("filterType")) {
                 "LOT_SIZE" -> { step = BigDecimal(x.getString("stepSize")).stripTrailingZeros(); minQty = BigDecimal(x.getString("minQty")) }
                 "NOTIONAL", "MIN_NOTIONAL" -> minN = x.optString("minNotional", "0").toDouble()
+                "PRICE_FILTER" -> tick = BigDecimal(x.getString("tickSize")).stripTrailingZeros()
             } }
-        return Sym(s.getString("baseAsset"), s.getString("quoteAsset"), step, minQty, minN).also { syms[symbol] = it }
+        return Sym(s.getString("baseAsset"), s.getString("quoteAsset"), step, minQty, minN, tick).also { syms[symbol] = it }
     }
 
     private fun resumo(ctx: Context, o: JSONObject, side: String, symbol: String, why: String): JSONObject {
@@ -139,6 +140,60 @@ object Broker {
         val o = JSONObject(signed(ctx, "POST", "/api/v3/order", mapOf("symbol" to symbol, "side" to "BUY", "type" to "MARKET",
             "quoteOrderQty" to BigDecimal(quoteQty).setScale(2, RoundingMode.DOWN).toPlainString(), "newOrderRespType" to "FULL")))
         return resumo(ctx, o, "BUY", symbol, why).also { log(ctx, it) }
+    }
+
+    private fun px(v: Double, tick: BigDecimal) = BigDecimal(v.toString()).divide(tick, 0, RoundingMode.HALF_UP).multiply(tick).stripTrailingZeros().toPlainString()
+
+    private fun baseBal(ctx: Context, s: Sym): Pair<Double, Double> {
+        val bal = account(ctx).getJSONArray("balances"); var free = 0.0; var locked = 0.0
+        for (i in 0 until bal.length()) { val b = bal.getJSONObject(i); if (b.getString("asset") == s.base) { free = b.getDouble("free"); locked = b.getDouble("locked") } }
+        return Pair(free, locked)
+    }
+
+    /** Ainda tem o ativo (livre ou preso numa ordem de alvo/stop)? */
+    fun holds(ctx: Context, symbol: String): Boolean { val s = sym(ctx, symbol); val (f, l) = baseBal(ctx, s); return BigDecimal((f + l).toString()) >= s.minQty.max(s.step) }
+
+    /** Cancela todas as ordens abertas do ativo (alvo e stop). */
+    fun cancelAll(ctx: Context, symbol: String) {
+        try { signed(ctx, "DELETE", "/api/v3/openOrders", mapOf("symbol" to symbol)) } catch (e: BinanceError) { if (e.code != -2011) throw e }
+    }
+
+    /** Coloca alvo e stop juntos (OCO) na própria Binance: ela fecha a operação mesmo com o celular desligado. */
+    fun protect(ctx: Context, symbol: String, tp: Double, sl: Double) {
+        val s = sym(ctx, symbol); val (free, _) = baseBal(ctx, s)
+        val qty = BigDecimal(free.toString()).divide(s.step, 0, RoundingMode.DOWN).multiply(s.step)
+        if (qty <= BigDecimal.ZERO || qty < s.minQty) throw BinanceError(0, "Sem saldo do ativo para colocar o stop.")
+        signed(ctx, "POST", "/api/v3/orderList/oco", mapOf("symbol" to symbol, "side" to "SELL", "quantity" to qty.stripTrailingZeros().toPlainString(),
+            "aboveType" to "LIMIT_MAKER", "abovePrice" to px(tp, s.tick),
+            "belowType" to "STOP_LOSS_LIMIT", "belowStopPrice" to px(sl, s.tick), "belowPrice" to px(sl * 0.997, s.tick), "belowTimeInForce" to "GTC"))
+    }
+
+    /** Vendas feitas pela Binance (alvo/stop) depois de [since]: quantidade e valor recebido. */
+    fun soldSince(ctx: Context, symbol: String, since: Long): Pair<Double, Double> {
+        val a = JSONArray(signed(ctx, "GET", "/api/v3/myTrades", mapOf("symbol" to symbol, "limit" to "20")))
+        var q = 0.0; var v = 0.0
+        for (i in 0 until a.length()) { val t = a.getJSONObject(i); if (!t.getBoolean("isBuyer") && t.getLong("time") >= since) { q += t.getString("qty").toDouble(); v += t.getString("quoteQty").toDouble() } }
+        return Pair(q, v)
+    }
+
+    /** Acrescenta dados à última ordem registrada (ex.: alvo e stop). */
+    fun patchLast(ctx: Context, extra: JSONObject) {
+        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); if (a.length() == 0) return
+        val o = a.getJSONObject(0); val k = extra.keys(); while (k.hasNext()) { val key = k.next(); o.put(key, extra.get(key)) }
+        sp(ctx).edit().putString("log", a.toString()).apply()
+    }
+
+    /** Resultado de hoje (compra → venda) e perdas seguidas de hoje, neste modo e ativo. */
+    fun today(ctx: Context, symbol: String): Pair<Double, Int> {
+        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); val m = mode(ctx)
+        val cal = java.util.Calendar.getInstance(); cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0); val t0 = cal.timeInMillis
+        var buy: JSONObject? = null; var sum = 0.0; val res = ArrayList<Double>()
+        for (i in a.length() - 1 downTo 0) { val o = a.getJSONObject(i)
+            if (o.optString("symbol") != symbol || o.optString("mode", "demo") != m) continue
+            when (o.optString("side")) { "BUY" -> buy = o
+                "SELL" -> { val b = buy; if (b != null && o.optLong("t") >= t0) { val r = o.optDouble("quote") - b.optDouble("quote"); sum += r; res.add(r) }; buy = null } } }
+        var seq = 0; for (r in res.reversed()) { if (r < 0) seq++ else break }
+        return Pair(sum, seq)
     }
 
     /** Vende tudo o que tiver do ativo (ex.: todo o BTC). */
