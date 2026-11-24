@@ -75,6 +75,13 @@
   .star.fav { color: #ffd166; }
   .gh { font-size: 12px; font-weight: 800; color: #8a94a6; text-transform: uppercase; letter-spacing: .5px; margin: 12px 8px 4px; }
   .hidden { display: none !important; }
+  #opt { background: rgba(5,8,14,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); align-items: stretch; }
+  #opt .box { height: 100%; max-height: 100vh; border-radius: 0; background: rgba(16,21,31,.8); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding-top: 14px; }
+  .optTop { display: flex; align-items: center; gap: 8px; position: sticky; top: -14px; z-index: 2; background: rgba(16,21,31,.95); margin: -14px -18px 10px; padding: 12px 18px; border-bottom: 1px solid #1c2433; }
+  #optProg { padding: 28px 6px 12px; }
+  .pgPct { text-align: center; font-size: 46px; font-weight: 900; background: linear-gradient(90deg,#4da3ff,#9b6bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .pgBar { height: 12px; border-radius: 6px; background: #1c2433; overflow: hidden; margin-top: 10px; }
+  .pgBar div { height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg,#2b6cff,#9b6bff); transition: width .25s; }
   .lrow { display: flex; align-items: center; gap: 9px; padding: 7px 4px; border-top: 1px solid #1c2433; }
   .lrow:first-of-type { border-top: 0; } .lrow.on { background: #16223a; border-radius: 10px; }
   .lrow .logo { width: 28px; height: 28px; font-size: 9px; }
@@ -183,7 +190,14 @@
 <p class="note">Cripto: preços da Binance em tempo real. Os sinais seguem regras automáticas (cruzamento de médias, leitura de candles e rompimento de máxima/mínima). Eles erram com frequência e não são recomendação de investimento. O mini índice usa o Ibovespa como referência (os pontos ficam próximos, não iguais), com atraso de uns 15 minutos.</p>
 
 <div class="sheet" id="opt"><div class="box">
-  <h2>🔬 Melhor estratégia</h2>
+  <div class="optTop"><h2 style="margin:0;flex:1">🔬 Melhor estratégia</h2><button class="iconbtn" id="optClose">✕</button></div>
+  <div id="optProg" class="hidden">
+    <div class="pgPct" id="pgPct">0%</div>
+    <div class="pgBar"><div id="pgFill"></div></div>
+    <p id="pgTxt" class="mut" style="text-align:center;font-size:14px;margin:10px 0 2px"></p>
+    <p id="pgSub" class="mut" style="text-align:center;font-size:12px;margin:0"></p>
+  </div>
+  <div id="optForm">
   <p class="mut" style="margin:0;font-size:13px">Testa ${n} análises × 3 saídas em cada tempo gráfico, já descontando as taxas.</p>
   <label>O que analisar</label><select id="optAsset" class="sel" style="width:100%"></select>
   <label>Período da análise</label>
@@ -192,6 +206,7 @@
   <div class="tf" id="optTfs" style="padding:0;flex-wrap:wrap"></div>
   <p class="mut" style="font-size:12px;margin:6px 0 0" id="optTfNote"></p>
   <button class="primary" id="optRun">Analisar</button>
+  </div>
   <div id="optOut" style="margin-top:14px"></div>
 </div></div>
 <div class="sheet" id="menu"><div class="box">
@@ -1279,12 +1294,17 @@ document.getElementById("optRun").onclick = async () => {
   const load = async (a, tf, hist) => { const r = await getRaw(a, tf, hist), base = IV_MIN[a.crypto ? tf.b : tf.y];
     return base !== tf.min ? aggregate(r.candles, tf.min, a.crypto) : r.candles; };
   try {
-    let done = 0;
+    let done = 0, units = 0; const total = list.length * tfs.length;
+    const prog = (txt) => { const p = Math.max(1, Math.min(100, Math.round(units / total * 100)));
+      document.getElementById("pgPct").textContent = p + "%"; document.getElementById("pgFill").style.width = p + "%";
+      document.getElementById("pgTxt").innerHTML = txt; document.getElementById("pgSub").textContent = (all ? done + " de " + list.length + " criptos concluídas · " : "") + optResults.length.toLocaleString("pt-BR") + " combinações testadas"; };
+    document.getElementById("optForm").classList.add("hidden"); document.getElementById("optProg").classList.remove("hidden"); optOut.innerHTML = ""; prog("Começando…");
     const work = async a => {
       for (const tf of tfs) {
+        prog("Analisando <b>" + parts(a).t + "</b> · " + tf.label);
         const baseMin = IV_MIN[a.crypto ? tf.b : tf.y], hist = all && a.crypto ? Math.max(1, Math.min(maxD, Math.floor(4000 * baseMin / 1440) - 15)) : maxD + (tf.id === "1d" ? 120 : 5);
-        let cs; try { cs = await load(a, tf, hist); } catch (e) { continue; }
-        if (!cs || cs.length < 260) continue;
+        let cs; try { cs = await load(a, tf, hist); } catch (e) { units++; continue; }
+        if (!cs || cs.length < 260) { units++; continue; }
         const o = btOpts(a, tf), lastT = cs[cs.length - 1].t, warm = 200; o.P = exitPrep(cs);
         const starts = {}, days = {};
         for (const d of PERIODS) { const t0 = lastT - d * 86400; let i = cs.findIndex(c => c.t >= t0); if (i < 0) i = cs.length - 1; starts[d] = Math.max(warm, i); days[d] = Math.round((lastT - cs[starts[d]].t) / 86400); }
@@ -1295,9 +1315,10 @@ document.getElementById("optRun").onclick = async () => {
             for (const d of PERIODS) per[d] = days[d] >= 1 ? runBT(cs, dd, starts[d], cs.length, oo) : null;
             optResults.push({ a, st, tf, ex, per, days }); }
         }
+        units++; prog("Analisando <b>" + parts(a).t + "</b> · " + tf.label);
         await new Promise(r => setTimeout(r, 0));
       }
-      done++; optOut.innerHTML = '<p class="mut">Analisando ' + done + ' de ' + list.length + (all ? ' criptos' : '') + '… <b>' + parts(a).t + '</b></p>';
+      done++;
     };
     const q = list.slice(), workers = []; for (let k = 0; k < (all ? 4 : 1); k++) workers.push((async () => { while (q.length) await work(q.shift()); })());
     await Promise.all(workers);
@@ -1308,9 +1329,10 @@ document.getElementById("optRun").onclick = async () => {
         setTimeout(() => document.getElementById("live").scrollIntoView({ behavior: "smooth", block: "center" }), 300); }
       else optOut.insertAdjacentHTML("afterbegin", r.html);
     }
-  } finally { btn.disabled = false; }
+  } finally { btn.disabled = false; document.getElementById("optProg").classList.add("hidden"); document.getElementById("optForm").classList.remove("hidden"); }
 };
 let optAll = false;
+document.getElementById("optClose").onclick = () => optSheet.classList.remove("open");
 function toast(t) { let el = document.getElementById("toast"); if (!el) { el = document.createElement("div"); el.id = "toast"; el.style.cssText = "position:fixed;left:12px;right:12px;bottom:24px;z-index:50;background:#1f2a3d;border:1px solid #2b6cff;color:#fff;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:700;text-align:center;transition:opacity .3s"; document.body.appendChild(el); }
   el.textContent = t; el.style.opacity = 1; clearTimeout(el._t); el._t = setTimeout(() => el.style.opacity = 0, 3500); }
 // liga o robô nas melhores (75%+ e lucro), troca as que saíram do topo (se não estiverem compradas)
