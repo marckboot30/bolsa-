@@ -44,6 +44,15 @@
   .badge.none { background: #1c2433; color: #8a94a6; }
   .row { display: flex; justify-content: space-between; font-size: 14px; padding: 3px 0; }
   .note { margin: 12px 14px 0; font-size: 12px; color: #6f7a8d; line-height: 1.4; }
+  .perf { margin: 6px 10px 0; background: #141a25; border: 1px solid #1c2433; border-radius: 14px; padding: 10px 12px; }
+  .perf .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: #8a94a6; }
+  .perf .hd b { color: #e6e9ef; font-size: 13px; text-align: right; }
+  .pbar { display: flex; height: 22px; border-radius: 11px; overflow: hidden; margin: 8px 0 4px; background: #263042; }
+  .pbar div { display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #fff; white-space: nowrap; min-width: 0; overflow: hidden; }
+  .pbar .w { background: #1f9e6a; } .pbar .l { background: #d9414f; }
+  .pnums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 8px; text-align: center; }
+  .pnums div { background: #0f141d; border-radius: 10px; padding: 6px 2px; }
+  .pnums b { display: block; font-size: 17px; } .pnums span { font-size: 11px; color: #8a94a6; }
   .status { padding: 0 14px; font-size: 12px; color: #8a94a6; min-height: 16px; }
   .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-end; z-index: 20; }
   .sheet.open { display: flex; }
@@ -73,12 +82,8 @@
 </div>
 <div class="legend" id="legend"></div>
 <div class="status" id="status"></div>
+<div class="perf" id="perf"><div class="hd"><span>DESEMPENHO DA ANÁLISE</span><b>—</b></div></div>
 <div class="cards">
-  <div class="card wide" id="watchCard"><h3>Vigiando no fundo (avisa mesmo com o app fechado)</h3><div id="watchList"></div>
-    <button class="primary" id="watchToggle" style="margin-top:10px">🔔 Vigiar este ativo neste tempo gráfico</button>
-    <p>Confere a cada 30 segundos e avisa quando um candle <b>fecha</b> com sinal. Toque abaixo uma vez para o celular não desligar a vigia.</p>
-    <button class="chip" id="batteryBtn" style="margin-top:8px;width:100%">Liberar para funcionar com a tela desligada</button>
-  </div>
   <div class="card wide"><h3 id="sigTitle">Sinal da estratégia</h3><div class="signal"><span id="sigBadge" class="badge none">—</span><p id="sigText" style="margin:0"></p></div></div>
   <div class="card"><h3>Tendência</h3><div class="v" id="trend">—</div><p id="trendTxt"></p></div>
   <div class="card"><h3>Último candle</h3><div class="v" id="candle">—</div><p id="candleTxt"></p></div>
@@ -89,7 +94,12 @@
     <div class="row"><span>Mínima de ontem</span><span id="prevLo">—</span></div>
     <p id="hiloTxt"></p>
   </div>
-  <div class="card wide"><h3>Teste no passado (dados do gráfico)</h3><div id="bt"></div></div>
+  <div class="card wide"><h3>Teste no passado (detalhes)</h3><div id="bt"></div></div>
+  <div class="card wide" id="watchCard"><h3>Vigiando no fundo (avisa mesmo com o app fechado)</h3><div id="watchList"></div>
+    <button class="primary" id="watchToggle" style="margin-top:10px">🔔 Vigiar este ativo neste tempo gráfico</button>
+    <p>Confere a cada 30 segundos e avisa quando um candle <b>fecha</b> com sinal. Toque abaixo uma vez para o celular não desligar a vigia.</p>
+    <button class="chip" id="batteryBtn" style="margin-top:8px;width:100%">Liberar para funcionar com a tela desligada</button>
+  </div>
 </div>
 <p class="note">Cripto: preços da Binance em tempo real. Os sinais seguem regras automáticas (cruzamento de médias, leitura de candles e rompimento de máxima/mínima). Eles erram com frequência e não são recomendação de investimento. O mini índice usa o Ibovespa como referência (os pontos ficam próximos, não iguais), com atraso de uns 15 minutos.</p>
 
@@ -571,6 +581,7 @@ function render() {
   const bh = asset.futures ? last.c - cs[0].c : (last.c / cs[0].c - 1) * 100;
   const money = v => asset.futures ? "R$ " + (v * asset.pointValue).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " por contrato" : "R$ " + (v * 10).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " a cada R$ 1.000";
   const f1 = v => (v >= 0 ? "+" : "") + (asset.futures ? fmt(v, asset) : v.toFixed(1)) + unit;
+  renderPerf(bt, cs, asset, tf, f1);
   document.getElementById("bt").innerHTML = bt.n ? (
     '<div class="row"><span>Entrada</span><b>' + an.st.name + '</b></div>' +
     '<div class="row"><span>Saída</span><span>' + EXITS[cfg.exit || "auto"] + '</span></div>' +
@@ -582,6 +593,24 @@ function render() {
     '<div class="row"><span>Só comprar e segurar</span><span>' + f1(bh) + '</span></div>' +
     '<p>' + (tf.intraday && !asset.crypto ? "Zera a posição no fim de cada dia. " : "") + (asset.futures || cfg.short ? "Opera comprado e vendido." : "Só compra: o sinal de venda serve para sair.") + '</p>'
   ) : '<p>Poucos sinais nos dados carregados para testar.</p>';
+}
+
+function renderPerf(bt, cs, asset, tf, f1) {
+  const el = document.getElementById("perf"), ent = bt.ev.filter(e => e.type === "entry"), ex = bt.ev.filter(e => e.type === "exit");
+  const buys = ent.filter(e => e.dir === 1).length, sells = ent.filter(e => e.dir === -1).length;
+  const w = ex.filter(e => e.r > 0).length, l = ex.length - w, wp = ex.length ? Math.round(w / ex.length * 100) : 0;
+  const days = cs.length > 1 ? Math.max(1, Math.round((cs[cs.length - 1].t - cs[0].t) / 86400)) : 0;
+  const hd = '<div class="hd"><span>DESEMPENHO DA ANÁLISE · ' + tf.label + (days ? ' · ' + days + ' dias' : '') + '</span><b>' + an.st.name + '</b></div>';
+  if (!ex.length) { el.innerHTML = hd + '<p class="mut" style="font-size:13px;margin:8px 0 0">Ainda nenhuma operação encerrada nos dados do gráfico.</p>'; return; }
+  const open = bt.open ? (bt.open.dir === 1 ? "Comprado agora" : "Vendido agora") : "Fora agora";
+  el.innerHTML = hd +
+    '<div class="pbar">' + (w ? '<div class="w" style="width:' + wp + '%">' + (wp >= 18 ? wp + '% vitórias' : '') + '</div>' : '') +
+    (l ? '<div class="l" style="width:' + (100 - wp) + '%">' + (100 - wp >= 18 ? (100 - wp) + '% derrotas' : '') + '</div>' : '') + '</div>' +
+    '<div class="row" style="font-size:13px"><span class="up">' + w + ' vitórias</span><span class="down">' + l + ' derrotas</span></div>' +
+    '<p style="margin:2px 0 0;font-size:13px;color:#b9c1cf">A cada 100 entradas: <b class="up">' + wp + ' vitórias</b> e <b class="down">' + (100 - wp) + ' derrotas</b>.</p>' +
+    '<div class="pnums"><div><b>' + buys + '</b><span>Compras</span></div><div><b>' + sells + '</b><span>Vendas</span></div><div><b>' + ex.length + '</b><span>Encerradas</span></div>' +
+    '<div><b class="' + (bt.sum >= 0 ? "up" : "down") + '" style="font-size:15px">' + f1(bt.sum) + '</b><span>Resultado</span></div></div>' +
+    '<div class="row" style="font-size:12px;margin-top:6px"><span class="mut">' + open + '</span><span class="mut">Pior sequência <span class="down">' + f1(bt.dd) + '</span></span></div>';
 }
 
 // ================= ALERTAS =================
