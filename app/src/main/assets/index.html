@@ -95,8 +95,10 @@
 
 <div class="sheet" id="opt"><div class="box">
   <h2>🔬 Melhor estratégia</h2>
-  <p class="mut" style="margin:0;font-size:13px">Testa ${n} análises (candles, médias, topos e fundos, rompimentos, IFR, Bollinger e MACD) no histórico. Aprende com 70% dos dados e confere nos últimos 30%, já descontando taxas.</p>
+  <p class="mut" style="margin:0;font-size:13px">Testa ${n} análises (candles, médias, topos e fundos, rompimentos, IFR, Bollinger e MACD) no histórico. Mostra o resultado nos últimos 30, 60 e 90 dias, já descontando taxas.</p>
   <label>Ativo para analisar</label><select id="optAsset" class="sel" style="width:100%"></select>
+  <label>Período da análise</label>
+  <div class="tf" id="optDays" style="padding:0"></div>
   <div class="sw"><span>Testar todos os tempos gráficos (5 min, 15 min, 1 hora e diário)</span><input type="checkbox" id="optAll" checked></div>
   <button class="primary" id="optRun">Analisar</button>
   <div id="optOut" style="margin-top:14px"></div>
@@ -155,10 +157,12 @@ function httpGet(url) {
 const HIST_RANGE = { "1m": "7d", "5m": "60d", "15m": "60d", "60m": "2y", "1d": "5y" };
 const BIN_IV = { "1m": "1m", "5m": "5m", "15m": "15m", "60m": "1h", "1d": "1d" };
 function brt(sec) { const d = new Date((sec - 10800) * 1000).toISOString(); return { day: d.slice(0, 10), hm: d.slice(11, 16), date: d.slice(8, 10) + "/" + d.slice(5, 7) }; }
+const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "60m": 3600, "1d": 86400 };
 async function loadCandles(asset, tf, hist) {
   if (asset.crypto) {
     let arr = [], end = null;
-    for (let page = 0; page < (hist ? 3 : 1); page++) {
+    const pages = hist ? Math.min(30, Math.ceil(((typeof hist === "number" ? hist : 30) + 15) * 86400 / IV_SEC[tf.id] / 1000)) : 1;
+    for (let page = 0; page < pages; page++) {
       const part = JSON.parse(await httpGet("https://api.binance.com/api/v3/klines?symbol=" + asset.id + "&interval=" + BIN_IV[tf.id] + "&limit=" + (hist ? 1000 : 500) + (end ? "&endTime=" + end : "")));
       if (!Array.isArray(part)) throw new Error((part && part.msg) || "par não encontrado na Binance");
       if (!part.length) break;
@@ -546,25 +550,36 @@ document.getElementById("optOpen").onclick = () => {
   sel.value = cfg.asset; optOut.innerHTML = ""; optSheet.classList.add("open");
 };
 optSheet.addEventListener("click", e => { if (e.target === optSheet) optSheet.classList.remove("open"); });
-let optResults = [];
-function fmtRes(v, a) { return (v >= 0 ? "+" : "") + (a.futures ? Math.round(v).toLocaleString("pt-BR") + " pts" : v.toFixed(1) + "%"); }
+let optResults = [], optDays = 30;
+const PERIODS = [30, 60, 90];
+function renderDays() {
+  const box = document.getElementById("optDays"); box.innerHTML = "";
+  for (const d of PERIODS) { const b = document.createElement("button"); b.className = "chip" + (d === optDays ? " on" : ""); b.textContent = d + " dias"; b.onclick = () => { optDays = d; renderDays(); if (optResults.length) showOpt(optAsset); }; box.appendChild(b); }
+}
+renderDays();
+let optAsset = null;
+function fmtRes(v, a) { return v == null ? "—" : (v >= 0 ? "+" : "") + (a.futures ? Math.round(v).toLocaleString("pt-BR") + " pts" : v.toFixed(1) + "%"); }
 document.getElementById("optRun").onclick = async () => {
   const a = assets().find(x => x.id === document.getElementById("optAsset").value), all = document.getElementById("optAll").checked;
   const tfs = all ? TFS.filter(t => ["5m", "15m", "60m", "1d"].includes(t.id)) : [curTf()];
-  optResults = []; const btn = document.getElementById("optRun"); btn.disabled = true;
+  optResults = []; optAsset = a; const btn = document.getElementById("optRun"); btn.disabled = true;
   try {
     for (const tf of tfs) {
-      optOut.innerHTML = '<p class="mut">Baixando histórico de ' + tf.label + '…</p>';
-      let h; try { h = await loadCandles(a, tf, true); } catch (e) { continue; }
-      const cs = h.candles; if (cs.length < 120) continue;
-      optOut.innerHTML = '<p class="mut">Testando ' + STRATS.length + ' estratégias em ' + tf.label + ' (' + cs.length + ' candles)…</p>';
+      optOut.innerHTML = '<p class="mut">Baixando ' + Math.max(...PERIODS) + ' dias de ' + tf.label + '…</p>';
+      let h; try { h = await loadCandles(a, tf, Math.max(...PERIODS) + (tf.id === "1d" ? 120 : 5)); } catch (e) { continue; }
+      const cs = h.candles; if (cs.length < 60) continue;
+      optOut.innerHTML = '<p class="mut">Testando ' + STRATS.length + ' estratégias em ' + tf.label + '…</p>';
       await new Promise(r => setTimeout(r, 30));
-      const o = btOpts(a, tf), split = Math.floor(cs.length * .7);
-      const bhT = a.futures ? cs[cs.length - 1].c - cs[split].c : (cs[cs.length - 1].c / cs[split].c - 1) * 100;
+      const o = btOpts(a, tf), lastT = cs[cs.length - 1].t;
+      // início de cada período (os indicadores usam os candles de antes para aquecer)
+      const starts = {}, have = {};
+      for (const d of PERIODS) { const t0 = lastT - d * 86400; const i = cs.findIndex(c => c.t >= t0); starts[d] = Math.max(1, i); have[d] = cs[0].t <= t0 + 86400; }
+      const bh = {}; for (const d of PERIODS) if (have[d]) bh[d] = a.futures ? cs[cs.length - 1].c - cs[starts[d]].c : (cs[cs.length - 1].c / cs[starts[d]].c - 1) * 100;
       for (const st of STRATS) {
         if (st.intradayOnly && !tf.intraday) continue;
-        const d = stratDirs(cs, st), is = runBT(cs, d, 1, split, o), oos = runBT(cs, d, split, cs.length, o), tot = runBT(cs, d, 1, cs.length, o);
-        optResults.push({ st, tf, is, oos, tot, bhT, ok: is.n >= 3 && oos.n >= 2, from: cs[0].date, to: cs[cs.length - 1].date, splitDate: cs[split].date });
+        const dd = stratDirs(cs, st), per = {};
+        for (const d of PERIODS) per[d] = have[d] ? runBT(cs, dd, starts[d], cs.length, o) : null;
+        optResults.push({ st, tf, per, bh });
       }
     }
     showOpt(a);
@@ -572,30 +587,39 @@ document.getElementById("optRun").onclick = async () => {
 };
 function showOpt(a) {
   if (!optResults.length) { optOut.innerHTML = '<p class="down">Não consegui baixar o histórico. Verifique a internet.</p>'; return; }
-  const ranked = optResults.filter(r => r.ok).sort((x, y) => (y.oos.sum - x.oos.sum) || (y.is.sum - x.is.sum));
-  const good = ranked.filter(r => r.oos.sum > 0 && r.is.sum > 0);
-  const best = good[0], bestHit = ranked.filter(r => r.tot.n >= 5).sort((x, y) => y.tot.wins / y.tot.n - x.tot.wins / x.tot.n)[0];
+  const D = optDays, minOps = D <= 30 ? 3 : 4;
+  const valid = optResults.filter(r => r.per[D] && r.per[D].n >= minOps);
+  const consist = r => PERIODS.every(d => !r.per[d] || r.per[d].sum > 0) && PERIODS.some(d => r.per[d]);
+  const ranked = valid.sort((x, y) => y.per[D].sum - x.per[D].sum);
+  const best = ranked.find(r => r.per[D].sum > 0);
+  const hit = r => Math.round(r.per[D].wins / r.per[D].n * 100);
+  const bestHit = ranked.filter(r => r.per[D].n >= 5).sort((x, y) => hit(y) - hit(x))[0];
+  const periodsRow = r => PERIODS.map(d => '<span style="flex:1;text-align:center">' + d + 'd<br><b class="' + (!r.per[d] ? "mut" : r.per[d].sum >= 0 ? "up" : "down") + '">' + (r.per[d] ? fmtRes(r.per[d].sum, a) : "—") + '</b></span>').join("");
   let h = "";
+  if (!ranked.length) h += '<p class="mut">Poucas operações nos últimos ' + D + ' dias para comparar. Tente um período maior.</p>';
   if (best) {
     const r = best;
-    h += '<div class="card" style="border-color:#26c281"><h3>Melhor para ' + a.name + '</h3><div class="v up">' + r.st.name + '</div><p>no gráfico de <b>' + r.tf.label + '</b> · ' + r.st.grp + '</p>' +
-      '<div class="row"><span>Acerto</span><b>' + Math.round(r.tot.wins / r.tot.n * 100) + '% (' + r.tot.wins + ' de ' + r.tot.n + ')</b></div>' +
-      '<div class="row"><span>Resultado nos 30% de teste</span><b class="up">' + fmtRes(r.oos.sum, a) + '</b></div>' +
-      '<div class="row"><span>Comprar e segurar no mesmo período</span><span>' + fmtRes(r.bhT, a) + '</span></div>' +
-      '<div class="row"><span>Resultado no período todo</span><span class="' + (r.tot.sum >= 0 ? "up" : "down") + '">' + fmtRes(r.tot.sum, a) + '</span></div>' +
-      '<p>Dados de ' + r.from + ' a ' + r.to + ', já com taxas.</p>' +
-      '<button class="primary" data-use="0">Usar esta estratégia</button></div>';
-  } else {
-    h += '<div class="card" style="border-color:#ff5468"><h3>Resultado</h3><div class="v down">Nenhuma estratégia deu lucro</div><p>Em ' + a.name + ', nenhuma das análises ganhou dinheiro no período de teste depois das taxas. O mais seguro é <b>não operar</b> esse ativo com sinais automáticos agora.</p></div>';
+    h += '<div class="card" style="border-color:#26c281"><h3>Nos últimos ' + D + ' dias em ' + a.name + '</h3><div class="v up">' + r.st.name + '</div><p>no gráfico de <b>' + r.tf.label + '</b> · ' + r.st.grp + (consist(r) ? ' · <b class="up">✔ consistente</b>' : '') + '</p>' +
+      '<div class="row"><span>Resultado em ' + D + ' dias</span><b class="up">' + fmtRes(r.per[D].sum, a) + '</b></div>' +
+      '<div class="row"><span>Acerto</span><b>' + hit(r) + '% (' + r.per[D].wins + ' de ' + r.per[D].n + ' operações)</b></div>' +
+      '<div class="row"><span>Comprar e segurar em ' + D + ' dias</span><span>' + fmtRes(r.bh[D], a) + '</span></div>' +
+      '<div class="row" style="margin-top:6px">' + periodsRow(r) + '</div>' +
+      (consist(r) ? '' : '<p>Atenção: não foi bem em todos os períodos. Pode ter sido sorte do momento.</p>') +
+      '<button class="primary" data-use="1">Usar esta estratégia</button></div>';
+  } else if (ranked.length) {
+    h += '<div class="card" style="border-color:#ff5468"><h3>Últimos ' + D + ' dias</h3><div class="v down">Nenhuma estratégia deu lucro</div><p>Em ' + a.name + ', nenhuma análise ganhou dinheiro nos últimos ' + D + ' dias depois das taxas. O mais seguro é <b>não operar</b> esse ativo com sinais agora.</p></div>';
   }
-  if (bestHit) h += '<p class="mut" style="font-size:13px">Maior taxa de acerto: <b>' + bestHit.st.name + '</b> em ' + bestHit.tf.label + ' com ' + Math.round(bestHit.tot.wins / bestHit.tot.n * 100) + '% (resultado ' + fmtRes(bestHit.tot.sum, a) + '). Acertar muito nem sempre dá lucro: às vezes ganha pouco e perde muito.</p>';
-  h += '<h3 style="font-size:13px;color:#8a94a6;margin:16px 0 6px">TODAS AS ANÁLISES (do melhor para o pior no teste)</h3>';
-  const list = (best ? [best] : []).concat(ranked.filter(r => r !== best)).slice(0, 40);
-  list.forEach((r, i) => {
-    h += '<div class="card" style="margin-bottom:6px;padding:10px"><div class="row"><b style="font-size:14px">' + (i + 1) + '. ' + r.st.name + '</b></div>' +
-      '<div class="row" style="font-size:12px"><span class="mut">' + r.tf.label + ' · ' + r.st.grp + ' · acerto ' + Math.round(r.tot.wins / Math.max(1, r.tot.n) * 100) + '% · ' + r.tot.n + ' operações</span></div>' +
-      '<div class="row" style="font-size:13px"><span>Teste: <b class="' + (r.oos.sum >= 0 ? "up" : "down") + '">' + fmtRes(r.oos.sum, a) + '</b> · Total: <span class="' + (r.tot.sum >= 0 ? "up" : "down") + '">' + fmtRes(r.tot.sum, a) + '</span></span>' +
-      '<button class="chip" style="height:28px" data-pick="' + optResults.indexOf(r) + '">Usar</button></div></div>';
+  const cons = ranked.filter(r => consist(r) && r !== best)[0];
+  if (cons) h += '<p class="mut" style="font-size:13px">Mais firme nos três períodos: <b>' + cons.st.name + '</b> em ' + cons.tf.label + '.</p>';
+  if (bestHit) h += '<p class="mut" style="font-size:13px">Maior acerto em ' + D + ' dias: <b>' + bestHit.st.name + '</b> em ' + bestHit.tf.label + ' com ' + hit(bestHit) + '% (resultado ' + fmtRes(bestHit.per[D].sum, a) + '). Acertar muito nem sempre dá lucro.</p>';
+  const missing = [...new Set(optResults.filter(r => !r.per[D]).map(r => r.tf.label))];
+  if (missing.length) h += '<p class="mut" style="font-size:12px">Sem histórico de ' + D + ' dias em: ' + missing.join(", ") + ' (a fonte grátis da B3 guarda só 60 dias no 5 e 15 min).</p>';
+  h += '<h3 style="font-size:13px;color:#8a94a6;margin:16px 0 6px">TODAS AS ANÁLISES · ÚLTIMOS ' + D + ' DIAS</h3>';
+  ranked.slice(0, 40).forEach((r, i) => {
+    h += '<div class="card" style="margin-bottom:6px;padding:10px"><div class="row"><b style="font-size:14px">' + (i + 1) + '. ' + r.st.name + (consist(r) ? ' <span class="up">✔</span>' : '') + '</b></div>' +
+      '<div class="row" style="font-size:12px"><span class="mut">' + r.tf.label + ' · ' + r.st.grp + ' · acerto ' + hit(r) + '% · ' + r.per[D].n + ' operações</span></div>' +
+      '<div class="row" style="font-size:12px">' + periodsRow(r) + '</div>' +
+      '<div style="text-align:right"><button class="chip" style="height:28px" data-pick="' + optResults.indexOf(r) + '">Usar</button></div></div>';
   });
   optOut.innerHTML = h;
   const use = r => {
