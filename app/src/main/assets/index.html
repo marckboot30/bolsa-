@@ -59,7 +59,8 @@
   .sheet .box { width: 100%; background: #141a25; border-radius: 18px 18px 0 0; padding: 18px; max-height: 85vh; overflow-y: auto; }
   .sheet h2 { margin: 0 0 12px; font-size: 18px; }
   .sheet label { display: block; font-size: 13px; color: #8a94a6; margin: 12px 0 6px; }
-  .sheet input[type=number], .sheet input[type=text] { width: 100%; height: 44px; border-radius: 10px; border: 1px solid #263042; background: #0b0e14; padding: 0 12px; font-size: 16px; }
+  #robotCard input, #robotCard label { display: block; } #robotCard label { font-size: 13px; color: #b9c1cf; margin: 8px 0 4px; }
+  #robotCard input, .sheet input[type=number], .sheet input[type=text] { width: 100%; height: 44px; border-radius: 10px; border: 1px solid #263042; background: #0b0e14; padding: 0 12px; font-size: 16px; }
   .sw { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; font-size: 15px; }
   .sw input { width: 22px; height: 22px; }
   .primary { width: 100%; height: 48px; margin-top: 18px; border-radius: 12px; border: none; background: #2b6cff; color: #fff; font-weight: 800; font-size: 16px; }
@@ -95,6 +96,22 @@
     <p id="hiloTxt"></p>
   </div>
   <div class="card wide"><h3>Teste no passado (detalhes)</h3><div id="bt"></div></div>
+  <div class="card wide" id="robotCard"><h3>🤖 Robô na Binance</h3>
+    <div class="tf" id="brkModes" style="padding:0 0 6px"></div>
+    <div id="brkWarn"></div>
+    <p id="brkStatus" style="margin:0 0 6px"></p>
+    <details id="brkKeys"><summary class="mut" style="font-size:13px;padding:4px 0">Chave da API deste modo</summary>
+      <label>Chave da API (API Key)</label><input type="text" id="brkKey" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label>Segredo (Secret Key)</label><input type="password" id="brkSecret" autocomplete="off">
+      <p class="mut" id="brkHelp" style="font-size:12px"></p>
+      <div style="display:flex;gap:8px"><button class="primary" id="brkSave" style="flex:2">Salvar e testar</button><button class="chip" id="brkDel" style="flex:1;height:44px;margin-top:10px">Apagar</button></div>
+    </details>
+    <label>Valor por operação</label><input type="number" id="brkQuote" min="1" step="1">
+    <div style="display:flex;gap:6px;margin-top:8px"><button class="chip" id="brkBal" style="flex:1">Ver saldo</button><button class="chip" id="brkBuy" style="flex:1">Comprar agora</button><button class="chip" id="brkSell" style="flex:1">Vender tudo</button></div>
+    <button class="primary" id="brkRobot" style="margin-top:10px">🤖 Ligar robô neste ativo</button>
+    <div id="brkOut" style="margin-top:8px"></div>
+    <h3 style="margin-top:12px">Últimas ordens</h3><div id="brkLog"></div>
+  </div>
   <div class="card wide" id="watchCard"><h3>Vigiando no fundo (avisa mesmo com o app fechado)</h3><div id="watchList"></div>
     <button class="primary" id="watchToggle" style="margin-top:10px">🔔 Vigiar este ativo neste tempo gráfico</button>
     <p>Confere a cada 30 segundos e avisa quando um candle <b>fecha</b> com sinal. Toque abaixo uma vez para o celular não desligar a vigia.</p>
@@ -673,9 +690,85 @@ function checkAlerts() {
 }
 
 // ================= VIGIA NO FUNDO =================
+// ================= ROBÔ (BINANCE) =================
+const BRK_MODES = { demo: "Demo (teste)", testnet: "Testnet", real: "⚠️ REAL" };
+const brkReq = {}; let brkId = 0;
+window.onBroker = (id, ok, b64) => { const p = brkReq[id]; if (!p) return; delete brkReq[id]; const t = decodeURIComponent(escape(atob(b64))); ok ? p.res(JSON.parse(t)) : p.rej(new Error(t)); };
+function brk(action, symbol, amount) {
+  if (!(window.Android && Android.broker)) return Promise.reject(new Error("O robô só funciona dentro do app no celular."));
+  return new Promise((res, rej) => { const id = ++brkId; brkReq[id] = { res, rej }; Android.broker(id, action, symbol || "", amount || 0); });
+}
+function brkInfo() { try { return JSON.parse(Android.brokerInfo()); } catch (e) { return { mode: "demo", demo: {}, testnet: {}, real: {} }; } }
+function brkQuoteCur(a) { return /BRL$/.test(a.id) ? "R$" : /USDT$/.test(a.id) ? "USDT" : ""; }
+function renderRobot() {
+  const a = curAsset(), inf = brkInfo(), m = inf.mode, mk = inf[m] || {}, w = cfg.watch.find(x => x.id === a.id && x.tf === cfg.tf), on = !!(w && w.robot);
+  const box = document.getElementById("brkModes"); box.innerHTML = "";
+  for (const k in BRK_MODES) { const b = document.createElement("button"); b.className = "chip" + (k === m ? " on" : ""); b.textContent = BRK_MODES[k];
+    if (k === "real" && k === m) b.style.background = b.style.borderColor = "#d9414f";
+    b.onclick = () => k === "real" && m !== "real" ? askReal() : (Android.brokerSave("", "", k), renderRobot()); box.appendChild(b); }
+  document.getElementById("brkWarn").innerHTML = m === "real" ? '<p style="background:#3a1219;border:1px solid #d9414f;border-radius:10px;padding:8px;margin:0 0 6px;color:#ffb3bb"><b>CONTA REAL:</b> as ordens usam o seu dinheiro de verdade.</p>' : "";
+  document.getElementById("brkStatus").innerHTML = mk.hasKey ? '<span class="up">● Chave salva</span> <span class="mut">(' + mk.key + ')</span>' : '<span class="down">● Falta colocar a chave da API deste modo</span>';
+  document.getElementById("brkKeys").open = !mk.hasKey;
+  document.getElementById("brkHelp").innerHTML = m === "real"
+    ? "Crie em binance.com → Gerenciamento de API. Marque só <b>Ler</b> e <b>Habilitar Spot</b>. <b>Nunca</b> ligue a permissão de saque. Se puder, restrinja a chave ao IP do seu celular."
+    : m === "testnet" ? "Crie em testnet.binance.vision (entra com a conta do GitHub)."
+    : "Na Binance, entre em <b>Demo Trading</b> (demo.binance.com) → Gerenciamento de API → Criar chave. O dinheiro lá é de mentira.";
+  const cur = brkQuoteCur(a); document.getElementById("brkQuote").value = cfg.robotQuote || 50;
+  document.getElementById("brkQuote").previousElementSibling.textContent = "Valor por operação" + (cur ? " (" + cur + ")" : "");
+  const rb = document.getElementById("brkRobot");
+  if (!a.crypto) { rb.disabled = true; rb.textContent = "Por enquanto o robô opera só cripto na Binance"; rb.style.opacity = .5; }
+  else { rb.disabled = false; rb.style.opacity = 1; rb.style.background = on ? "#d9414f" : ""; rb.textContent = on ? "Desligar robô de " + a.name + " · " + curTf().label : "🤖 Ligar robô em " + a.name + " · " + curTf().label; }
+  ["brkBuy", "brkSell"].forEach(id => document.getElementById(id).disabled = !a.crypto);
+  document.getElementById("brkBuy").textContent = "Comprar " + (cur ? cur + " " : "") + (cfg.robotQuote || 50);
+  renderBrkLog();
+}
+function renderBrkLog() {
+  let l = []; try { l = JSON.parse(Android.brokerLog()); } catch (e) {}
+  document.getElementById("brkLog").innerHTML = l.length ? l.slice(0, 15).map(o => {
+    const d = new Date(o.t), when = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    if (o.side === "ERRO") return '<div class="row" style="font-size:12px"><span class="down">⚠️ ' + when + ' ' + o.symbol + '</span><span class="mut" style="text-align:right">' + o.why + '</span></div>';
+    return '<div class="row" style="font-size:13px"><span><b class="' + (o.side === "BUY" ? "up" : "down") + '">' + (o.side === "BUY" ? "Compra" : "Venda") + '</b> ' + o.symbol + (o.mode === "real" ? ' <b class="down">REAL</b>' : ' <span class="mut">teste</span>') + '<br><span class="mut" style="font-size:11px">' + when + ' · ' + (o.why || "") + '</span></span><span style="text-align:right">' + (+o.qty).toLocaleString("pt-BR", { maximumFractionDigits: 8 }) + '<br><span class="mut" style="font-size:11px">' + (+o.quote).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span></span></div>';
+  }).join("") : '<p class="mut" style="font-size:13px">Nenhuma ordem ainda.</p>';
+}
+function brkMsg(html, bad) { document.getElementById("brkOut").innerHTML = '<p style="font-size:13px;margin:0" class="' + (bad ? "down" : "") + '">' + html + '</p>'; }
+function showBalances(r) {
+  const b = r.balances.slice().sort((x, y) => (["BRL", "USDT", "BTC", "ETH"].indexOf(x.asset) + 9) % 13 - (["BRL", "USDT", "BTC", "ETH"].indexOf(y.asset) + 9) % 13).slice(0, 8);
+  brkMsg('<b class="up">Conectado' + (r.mode === "real" ? " à CONTA REAL" : " à conta de teste") + '.</b> Saldo:<br>' + (b.length ? b.map(x => x.asset + ": <b>" + (+x.free).toLocaleString("pt-BR", { maximumFractionDigits: 8 }) + "</b>").join(" · ") : "vazio"));
+}
+function askReal() {
+  const o = document.getElementById("brkOut");
+  o.innerHTML = '<div style="background:#3a1219;border:1px solid #d9414f;border-radius:12px;padding:10px"><b>Ligar a conta REAL?</b><p style="margin:6px 0">A partir daqui as ordens usam <b>dinheiro de verdade</b>. Só faça isso depois que a demo funcionou bem por um tempo. Comece com valor pequeno.</p>' +
+    '<label>Para confirmar, digite REAL</label><input type="text" id="brkRealTxt" autocapitalize="characters"><div style="display:flex;gap:8px;margin-top:8px"><button class="chip" id="brkRealNo" style="flex:1">Cancelar</button><button class="primary" id="brkRealYes" style="flex:1;margin:0;background:#d9414f">Ligar conta real</button></div></div>';
+  document.getElementById("brkRealNo").onclick = () => { o.innerHTML = ""; };
+  document.getElementById("brkRealYes").onclick = () => {
+    if (document.getElementById("brkRealTxt").value.trim().toUpperCase() !== "REAL") { brkMsg("Digite REAL para confirmar.", true); return; }
+    Android.brokerSave("", "", "real"); o.innerHTML = ""; renderRobot(); brkMsg("Conta real escolhida. Agora coloque a chave da API da sua conta real.");
+  };
+}
+document.getElementById("brkSave").onclick = () => {
+  const k = document.getElementById("brkKey").value.trim(), sct = document.getElementById("brkSecret").value.trim();
+  if (!window.Android || !Android.brokerSave) { brkMsg("Só funciona dentro do app.", true); return; }
+  Android.brokerSave(k, sct, brkInfo().mode); document.getElementById("brkKey").value = document.getElementById("brkSecret").value = "";
+  renderRobot(); brkMsg("Testando a conexão…"); brk("account").then(showBalances).catch(e => brkMsg(e.message, true));
+};
+document.getElementById("brkDel").onclick = () => { if (window.Android && Android.brokerClear) Android.brokerClear(); renderRobot(); brkMsg("Chave apagada deste modo."); };
+document.getElementById("brkQuote").onchange = e => { const v = +e.target.value; if (v > 0) { cfg.robotQuote = v; syncWatch(); renderRobot(); } };
+document.getElementById("brkBal").onclick = () => { brkMsg("Buscando saldo…"); brk("account").then(showBalances).catch(e => brkMsg(e.message, true)); };
+document.getElementById("brkBuy").onclick = () => { const a = curAsset(); brkMsg("Enviando compra…");
+  brk("buy", a.id, cfg.robotQuote || 50).then(o => { brkMsg('<b class="up">Comprou</b> ' + o.qty + ' a ' + fmt(o.price, a) + '.'); renderBrkLog(); }).catch(e => { brkMsg(e.message, true); }); };
+document.getElementById("brkSell").onclick = () => { const a = curAsset(); brkMsg("Enviando venda…");
+  brk("sell", a.id).then(o => { brkMsg(o.none ? "Não tem nada desse ativo para vender." : '<b class="down">Vendeu</b> ' + o.qty + ' a ' + fmt(o.price, a) + '.'); renderBrkLog(); }).catch(e => brkMsg(e.message, true)); };
+document.getElementById("brkRobot").onclick = () => {
+  const a = curAsset(); if (!a.crypto) return;
+  let w = cfg.watch.find(x => x.id === a.id && x.tf === cfg.tf);
+  if (!w) { w = { id: a.id, tf: cfg.tf, name: a.name, src: "binance", dec: 2, b3: false }; cfg.watch.push(w); }
+  w.robot = !w.robot; syncWatch(); renderRobot();
+  brkMsg(w.robot ? "🤖 Robô ligado. Ele compra no sinal de entrada da estratégia <b>" + curStrat(a.id, cfg.tf).name + "</b> e vende no sinal de saída, mesmo com o app fechado. Na Binance à vista ele só compra e vende (não opera vendido)." : "Robô desligado. A vigia continua avisando.");
+};
+
 function syncWatch() {
   store.set("cfg", cfg);
-  const list = cfg.watch.map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: cfg.exit || "auto", short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)) }); });
+  const list = cfg.watch.map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: cfg.exit || "auto", short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)), robot: !!w.robot, robotQuote: cfg.robotQuote || 50 }); });
   if (window.Android && Android.setWatch) Android.setWatch(JSON.stringify(list));
   renderWatch();
 }
@@ -686,11 +779,12 @@ function renderWatch() {
   box.innerHTML = cfg.watch.length ? "" : '<p>Nenhum ativo sendo vigiado ainda.</p>';
   for (const w of cfg.watch) {
     const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = "<span>" + w.name + " · " + (TFS.find(t => t.id === w.tf) || {}).label + "</span>";
+    row.innerHTML = "<span>" + (w.robot ? "🤖 " : "") + w.name + " · " + (TFS.find(t => t.id === w.tf) || {}).label + "</span>";
     const b = document.createElement("button"); b.className = "chip"; b.textContent = "Remover"; b.style.height = "28px";
     b.onclick = () => { cfg.watch = cfg.watch.filter(x => x !== w); syncWatch(); };
     row.appendChild(b); box.appendChild(row);
   }
+  renderRobot();
 }
 function toggleWatch() {
   const a = curAsset();

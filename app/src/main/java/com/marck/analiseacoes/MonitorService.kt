@@ -26,6 +26,7 @@ data class Watch(
     val id: String, val tf: String, val name: String, val src: String,
     val fast: Int, val slow: Int, val cross: Boolean, val brk: Boolean, val dec: Int, val b3: Boolean,
     val strat: JSONObject, val stratName: String, val exit: String, val short: Boolean, val target: Double = 0.0,
+    val robot: Boolean = false, val robotQuote: Double = 0.0,
 )
 
 object Watches {
@@ -38,7 +39,8 @@ object Watches {
             Watch(o.getString("id"), o.getString("tf"), o.optString("name", o.getString("id")), o.optString("src", "yahoo"),
                 o.optInt("fast", 9), o.optInt("slow", 21), o.optBoolean("cross", true), o.optBoolean("brk", true), o.optInt("dec", 2), o.optBoolean("b3", true),
                 o.optJSONObject("strat") ?: JSONObject().put("type", "ma").put("f", o.optInt("fast", 9)).put("s", o.optInt("slow", 21)),
-                o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false), o.optDouble("target", 0.0))
+                o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false), o.optDouble("target", 0.0),
+                o.optBoolean("robot", false), o.optDouble("robotQuote", 0.0))
         }
     }.getOrDefault(emptyList())
 
@@ -173,6 +175,7 @@ class MonitorService : Service() {
             val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d", w.target) { day(it) }
             for (e in evs) {
                 if (e.i != k) continue
+                if (w.robot && w.src == "binance") robot(w, e, c.t)
                 if (e.entry) send("${w.id}|${w.tf}|in|${c.t}",
                     (if (e.dir > 0) "🟢 ENTRADA DE COMPRA" else "🔴 ENTRADA DE VENDA") + " · ${w.name} ($tfName)",
                     "${w.stratName}. Preço: ${fmt(e.price, w)}. Vou avisar quando for hora de sair.")
@@ -195,6 +198,31 @@ class MonitorService : Service() {
             }
         }
     }
+
+    // ---------------- robô (conta de TESTE da Binance) ----------------
+    private fun robot(w: Watch, e: Strategies.Event, t: Long) {
+        val key = "robo|${w.id}|${w.tf}|${if (e.entry) "in" else "out"}|$t"
+        val sent = sentPrefs.getStringSet("k", emptySet())!!
+        if (key in sent) return
+        sentPrefs.edit().putStringSet("k", sent + key).apply() // marca antes, para nunca mandar a mesma ordem duas vezes
+        try {
+            if (e.entry && e.dir > 0 && !Broker.inPosition(this, w.id)) {
+                val o = Broker.buy(this, w.id, w.robotQuote, w.stratName)
+                Broker.setPosition(this, w.id, true)
+                send("$key|ok", "🤖 Robô COMPROU · ${w.name}", (if (Broker.mode(this) == "real") "CONTA REAL" else "Conta de teste") + ": comprou ${o.getDouble("qty")} por ${fmtQ(o.getDouble("quote"), w)} (${w.stratName}).")
+            } else if (!e.entry && e.dir > 0 && Broker.inPosition(this, w.id)) {
+                val o = Broker.sellAll(this, w.id, e.why)
+                Broker.setPosition(this, w.id, false)
+                if (o != null) send("$key|ok", "🤖 Robô VENDEU · ${w.name}", (if (Broker.mode(this) == "real") "CONTA REAL" else "Conta de teste") + ": vendeu ${o.getDouble("qty")} por ${fmtQ(o.getDouble("quote"), w)}. Motivo: ${e.why}.")
+            }
+        } catch (x: Exception) {
+            Broker.log(this, JSONObject().put("t", System.currentTimeMillis()).put("side", "ERRO").put("symbol", w.id).put("why", x.message ?: "falha"))
+            send("$key|erro", "⚠️ Robô não conseguiu operar · ${w.name}", x.message ?: "Falha ao falar com a Binance.")
+        }
+    }
+
+    private fun fmtQ(v: Double, w: Watch) = (if (w.id.endsWith("BRL")) "R$ " else "") +
+        java.text.NumberFormat.getNumberInstance(Locale("pt", "BR")).apply { minimumFractionDigits = 2; maximumFractionDigits = 2 }.format(v) + (if (w.id.endsWith("USDT")) " USDT" else "")
 
     private fun fmt(v: Double, w: Watch): String {
         val dec = if (w.dec == 0) 0 else if (!w.b3 && v < 10) 4 else 2

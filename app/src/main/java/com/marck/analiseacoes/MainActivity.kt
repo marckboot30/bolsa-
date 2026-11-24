@@ -70,6 +70,36 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
+        fun brokerSave(key: String, secret: String, mode: String) = Broker.save(this@MainActivity, key, secret, mode)
+
+        @JavascriptInterface
+        fun brokerClear() = Broker.clear(this@MainActivity)
+
+        @JavascriptInterface
+        fun brokerInfo(): String = Broker.info(this@MainActivity).toString()
+
+        @JavascriptInterface
+        fun brokerLog(): String = Broker.logJson(this@MainActivity)
+
+        /** action: account | buy | sell — responde em window.onBroker(id, ok, base64) */
+        @JavascriptInterface
+        fun broker(id: Int, action: String, symbol: String, amount: Double) {
+            thread {
+                var ok = true
+                val txt = try {
+                    when (action) {
+                        "account" -> Broker.account(this@MainActivity).toString()
+                        "buy" -> Broker.buy(this@MainActivity, symbol, amount, "compra manual").also { Broker.setPosition(this@MainActivity, symbol, true) }.toString()
+                        "sell" -> (Broker.sellAll(this@MainActivity, symbol, "venda manual")?.toString() ?: "{\"none\":true}").also { Broker.setPosition(this@MainActivity, symbol, false) }
+                        else -> "{}"
+                    }
+                } catch (e: Exception) { ok = false; e.message ?: e.javaClass.simpleName }
+                val b64 = Base64.encodeToString(txt.toByteArray(), Base64.NO_WRAP)
+                runOnUiThread { web.evaluateJavascript("window.onBroker && window.onBroker($id, $ok, '$b64')", null) }
+            }
+        }
+
+        @JavascriptInterface
         fun setWatch(json: String) {
             Watches.save(this@MainActivity, json)
             runOnUiThread { runCatching { Watches.apply(this@MainActivity) } }
