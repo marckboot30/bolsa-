@@ -57,6 +57,23 @@
   .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-end; z-index: 20; }
   .sheet.open { display: flex; }
   .sheet .box { width: 100%; background: #141a25; border-radius: 18px 18px 0 0; padding: 18px; max-height: 85vh; overflow-y: auto; }
+  /* escolha de ativo */
+  .abtn { flex: 1; min-width: 0; height: 46px; border-radius: 12px; border: 1px solid #263042; background: #141a25; display: flex; align-items: center; gap: 9px; padding: 0 10px; text-align: left; }
+  .abtn .tx { min-width: 0; flex: 1; line-height: 1.1; } .abtn b { display: block; font-size: 15px; } .abtn small { display: block; font-size: 11px; color: #8a94a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .logo { flex: none; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; color: #fff; letter-spacing: -.3px; }
+  #pick .box { height: 92vh; max-height: 92vh; display: flex; flex-direction: column; padding: 14px 12px 0; }
+  #pick .top { display: flex; align-items: center; gap: 8px; }
+  #pick .top h2 { flex: 1; margin: 0; }
+  #pickQ { width: 100%; height: 46px; border-radius: 12px; border: 1px solid #263042; background: #0b0e14; padding: 0 14px; font-size: 16px; margin: 10px 0 8px; }
+  #pickTabs { padding: 0 0 8px; }
+  #pickList { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+  .arow { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 12px; border: 1px solid transparent; }
+  .arow.on { background: #16223a; border-color: #2b6cff; }
+  .arow .tx { flex: 1; min-width: 0; } .arow b { font-size: 15px; } .arow small { display: block; color: #8a94a6; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: #1c2433; color: #b9c1cf; margin-left: 4px; vertical-align: 2px; }
+  .star { width: 38px; height: 38px; border: 0; background: none; font-size: 20px; color: #4a5568; flex: none; }
+  .star.fav { color: #ffd166; }
+  .gh { font-size: 12px; font-weight: 800; color: #8a94a6; text-transform: uppercase; letter-spacing: .5px; margin: 12px 8px 4px; }
   .sheet h2 { margin: 0 0 12px; font-size: 18px; }
   .sheet label { display: block; font-size: 13px; color: #8a94a6; margin: 12px 0 6px; }
   #robotCard input, #robotCard label { display: block; } #robotCard label { font-size: 13px; color: #b9c1cf; margin: 8px 0 4px; }
@@ -68,7 +85,7 @@
 </head>
 <body>
 <header>
-  <select id="asset" class="sel"></select>
+  <select id="asset" class="sel" style="display:none"></select><button class="abtn" id="assetBtn"></button>
   <button class="iconbtn" id="watchBtn" title="Vigiar no fundo">🔕</button>
   <button class="iconbtn" id="refreshBtn" title="Atualizar">⟳</button>
   <button class="iconbtn" id="cfgBtn" title="Ajustes">⚙</button>
@@ -131,6 +148,12 @@
   <p class="mut" style="font-size:12px;margin:6px 0 0" id="optTfNote"></p>
   <button class="primary" id="optRun">Analisar</button>
   <div id="optOut" style="margin-top:14px"></div>
+</div></div>
+<div class="sheet" id="pick"><div class="box">
+  <div class="top"><h2>Escolher ativo</h2><button class="iconbtn" id="pickClose">✕</button></div>
+  <input type="search" id="pickQ" placeholder="🔍 Buscar: PETR4, Apple, Bitcoin…" autocomplete="off">
+  <div class="tf" id="pickTabs"></div>
+  <div id="pickList"></div>
 </div></div>
 <div class="sheet" id="sheet"><div class="box">
   <h2>Ajustes</h2>
@@ -1135,10 +1158,59 @@ async function refresh(keepView) {
   } catch (e) { statusEl.textContent = "Não consegui carregar: " + e.message + ". Verifique a internet."; }
   loading = false;
 }
+// ================= ESCOLHA DE ATIVO =================
+const PICK_TABS = [["fav", "⭐ Favoritos"], ["all", "Todos"], ["idx", "📈 Índice"], ["cry", "₿ Cripto"], ["b3", "🇧🇷 B3"], ["us", "🇺🇸 EUA"]];
+let pickTab = null;
+function kind(a) { return a.futures ? "idx" : a.crypto ? "cry" : a.us ? "us" : "b3"; }
+function parts(a) { // ticker e nome separados
+  if (a.futures) return { t: "WIN", n: "Mini índice · via Ibovespa" };
+  const p = a.name.split(" · ");
+  if (a.crypto) return p.length > 1 ? { t: p[1], n: p[0] } : { t: a.id, n: "Cripto" };
+  return p.length > 1 ? { t: p[0], n: p.slice(1).join(" · ") } : { t: a.id.replace(/\.SA$/, ""), n: a.us ? "Ação dos EUA" : "Ação da B3" };
+}
+function logo(a) {
+  const t = parts(a).t, txt = (a.crypto ? t.split("/")[0] : t.replace(/\d+$/, "")).slice(0, 4);
+  let h = 0; for (const ch of a.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  const bg = a.futures ? "linear-gradient(135deg,#2b6cff,#8a4dff)" : a.crypto ? "linear-gradient(135deg,hsl(" + h + ",70%,45%),#f0b90b)" : "linear-gradient(135deg,hsl(" + h + ",60%,42%),hsl(" + ((h + 40) % 360) + ",60%,30%))";
+  return '<span class="logo" style="background:' + bg + ';font-size:' + (txt.length > 3 ? 9 : 11) + 'px">' + txt + '</span>';
+}
+const TAGS = { idx: "ÍNDICE", cry: "CRIPTO", b3: "B3", us: "EUA" };
+function renderAssetBtn() {
+  const a = curAsset(), p = parts(a);
+  document.getElementById("assetBtn").innerHTML = logo(a) + '<span class="tx"><b>' + p.t + '</b><small>' + p.n + '</small></span><span class="mut">▾</span>';
+}
+function renderPick() {
+  const favs = cfg.favs || [], q = document.getElementById("pickQ").value.trim().toLowerCase();
+  if (!pickTab) pickTab = favs.length ? "fav" : "all";
+  const tabs = document.getElementById("pickTabs"); tabs.innerHTML = "";
+  for (const [k, l] of PICK_TABS) { const b = document.createElement("button"); b.className = "chip" + (k === pickTab && !q ? " on" : ""); b.textContent = l + (k === "fav" ? " " + favs.length : ""); b.onclick = () => { pickTab = k; document.getElementById("pickQ").value = ""; renderPick(); }; tabs.appendChild(b); }
+  let list = assets();
+  if (q) list = list.filter(a => (a.id + " " + a.name).toLowerCase().includes(q));
+  else if (pickTab === "fav") list = list.filter(a => favs.includes(a.id));
+  else if (pickTab !== "all") list = list.filter(a => kind(a) === pickTab);
+  const box = document.getElementById("pickList");
+  if (!list.length) { box.innerHTML = '<p class="mut" style="padding:20px 8px;text-align:center">' + (pickTab === "fav" && !q ? "Toque na ⭐ de um ativo para ele aparecer aqui." : "Nada encontrado. Dá para adicionar qualquer ticker em ⚙ Ajustes.") + '</p>'; return; }
+  let h = "", last = null;
+  for (const a of list) {
+    const k = kind(a), p = parts(a), w = cfg.watch.filter(x => x.id === a.id);
+    if ((pickTab === "all" || q) && k !== last) { h += '<div class="gh">' + { idx: "Índice", cry: "Cripto (Binance)", b3: "Ações da B3", us: "Ações dos EUA (US$)" }[k] + '</div>'; last = k; }
+    h += '<div class="arow' + (a.id === cfg.asset ? " on" : "") + '" data-id="' + a.id + '">' + logo(a) +
+      '<span class="tx"><b>' + p.t + '</b><span class="tag">' + TAGS[k] + '</span>' + (w.some(x => x.robot) ? '<span class="tag" style="background:#2a1f45">🤖</span>' : w.length ? '<span class="tag">🔔</span>' : '') + '<small>' + p.n + '</small></span>' +
+      '<button class="star' + (favs.includes(a.id) ? " fav" : "") + '" data-fav="' + a.id + '">★</button></div>';
+  }
+  box.innerHTML = h;
+  box.querySelectorAll("[data-fav]").forEach(b => b.onclick = e => { e.stopPropagation(); const id = b.dataset.fav; cfg.favs = favs.includes(id) ? favs.filter(x => x !== id) : favs.concat(id); store.set("cfg", cfg); renderPick(); });
+  box.querySelectorAll(".arow").forEach(r => r.onclick = () => { document.getElementById("pick").classList.remove("open"); if (r.dataset.id !== cfg.asset) { cfg.asset = r.dataset.id; store.set("cfg", cfg); buildUi(); data = null; stopStream(); prevPrice = null; draw(); refresh(); } });
+}
+document.getElementById("assetBtn").onclick = () => { document.getElementById("pickQ").value = ""; pickTab = null; renderPick(); document.getElementById("pick").classList.add("open"); const on = document.querySelector("#pickList .arow.on"); if (on) on.scrollIntoView({ block: "center" }); };
+document.getElementById("pickClose").onclick = () => document.getElementById("pick").classList.remove("open");
+document.getElementById("pick").addEventListener("click", e => { if (e.target.id === "pick") e.target.classList.remove("open"); });
+document.getElementById("pickQ").addEventListener("input", renderPick);
+
 function buildUi() {
   const sel = document.getElementById("asset"); sel.innerHTML = "";
   fillAssets(sel);
-  renderWatch();
+  renderWatch(); renderAssetBtn();
   sel.value = cfg.asset; sel.onchange = () => { cfg.asset = sel.value; store.set("cfg", cfg); data = null; stopStream(); prevPrice = null; draw(); refresh(); };
   const box = document.getElementById("tfs"); box.innerHTML = "";
   for (const t of TFS) { const b = document.createElement("button"); b.className = "chip" + (t.id === cfg.tf ? " on" : ""); b.textContent = t.label; b.onclick = () => { cfg.tf = t.id; store.set("cfg", cfg); buildUi(); data = null; stopStream(); draw(); refresh(); }; box.appendChild(b); }
