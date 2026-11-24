@@ -57,9 +57,10 @@ class MainActivity : Activity() {
     /** Veio de uma notificação: abre o gráfico no ativo e no tempo do alerta. */
     private fun openFromIntent(i: Intent?) {
         val a = i?.getStringExtra("asset") ?: return; val tf = i.getStringExtra("tf") ?: return
-        i.removeExtra("asset"); i.removeExtra("tf")
+        val st = i.getStringExtra("strat") ?: ""; val ex = i.getStringExtra("exit") ?: ""; val rep = i.getBooleanExtra("report", false)
+        i.removeExtra("asset"); i.removeExtra("tf"); i.removeExtra("strat"); i.removeExtra("exit"); i.removeExtra("report")
         val q = { s: String -> "'" + s.replace("\\", "").replace("'", "") + "'" }
-        web.evaluateJavascript("window.openFrom && window.openFrom(${q(a)}, ${q(tf)})", null)
+        web.evaluateJavascript("window.openFrom && window.openFrom(${q(a)}, ${q(tf)}, ${q(st)}, ${q(ex)}, $rep)", null)
     }
 
     inner class Bridge {
@@ -94,6 +95,24 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun brokerInfo(): String = Broker.info(this@MainActivity).toString()
+
+        @JavascriptInterface
+        fun setScan(json: String) { Scanner.save(this@MainActivity, json); Watches.apply(this@MainActivity) }
+
+        @JavascriptInterface
+        fun scanReport(): String = Scanner.report(this@MainActivity)
+
+        /** Roda o relatório agora; avisa o andamento em window.onScan(fim, base64) */
+        @JavascriptInterface
+        fun scanNow() {
+            thread {
+                fun js(done: Boolean, t: String) { val b = Base64.encodeToString(t.toByteArray(), Base64.NO_WRAP); runOnUiThread { web.evaluateJavascript("window.onScan && window.onScan($done, '$b')", null) } }
+                val get = { u: String -> val c = java.net.URL(u).openConnection() as java.net.HttpURLConnection; c.connectTimeout = 10000; c.readTimeout = 15000
+                    val s = c.inputStream.bufferedReader().use { it.readText() }; c.disconnect(); s }
+                val r = runCatching { Scanner.run(this@MainActivity, get) { js(false, it) }.toString() }.getOrElse { "{\"error\":\"" + (it.message ?: "falha").replace("\"", "'") + "\"}" }
+                js(true, r)
+            }
+        }
 
         @JavascriptInterface
         fun robotStatus(id: String, tf: String): String = Broker.status(this@MainActivity, id, tf)

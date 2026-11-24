@@ -48,7 +48,7 @@ object Watches {
 
     fun apply(ctx: Context) {
         val i = Intent(ctx, MonitorService::class.java)
-        if (load(ctx).isEmpty()) ctx.stopService(i)
+        if (load(ctx).isEmpty() && !Scanner.enabled(ctx)) ctx.stopService(i)
         else if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
     }
 }
@@ -83,7 +83,8 @@ class MonitorService : Service() {
     private fun loop() {
         while (running) {
             val list = Watches.load(this)
-            if (list.isEmpty()) { stopSelf(); return }
+            if (list.isEmpty() && !Scanner.enabled(this)) { stopSelf(); return }
+            if (Scanner.due(this)) runCatching { dailyReport() }
             var ok = 0
             for (w in list) if (runCatching { check(w) }.isSuccess) ok++
             val hora = SimpleDateFormat("HH:mm", Locale("pt", "BR")).apply { timeZone = TimeZone.getTimeZone("America/Sao_Paulo") }.format(Date())
@@ -204,6 +205,24 @@ class MonitorService : Service() {
             }
         }
     }
+
+    // ---------------- relatório diário ----------------
+    private fun dailyReport() {
+        val rep = Scanner.run(this, { get(it) }) { getSystemService(NotificationManager::class.java).notify(1, status("📊 Montando o relatório: $it")) }
+        val items = rep.optJSONArray("items")
+        if (items == null || items.length() == 0) { send("relatorio|" + rep.optLong("t"), "📊 Relatório do dia", "Nenhuma estratégia deu lucro nas criptos testadas. O mais seguro hoje é não operar."); return }
+        val b = items.getJSONObject(0)
+        val txt = "${b.optString("name")} · ${b.optString("stratName")} · ${tfLabel(b.optString("tf"))}: acerto ${b.optInt("hit")}%, " +
+            String.format(Locale("pt", "BR"), "%+.1f%% em %.0f dias", b.optDouble("sum"), b.optDouble("days")) + ". Toque para abrir já configurado."
+        val i = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("asset", b.optString("id")).putExtra("tf", b.optString("tf")).putExtra("strat", b.optString("strat")).putExtra("exit", b.optString("exit")).putExtra("report", true)
+        val pi = PendingIntent.getActivity(this, 777, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        getSystemService(NotificationManager::class.java).notify(777, builder("sinais").setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("📊 Relatório do dia: melhor em ${b.optString("name")}").setContentText(txt).setStyle(Notification.BigTextStyle().bigText(txt))
+            .setAutoCancel(true).setContentIntent(pi).build())
+    }
+
+    private fun tfLabel(tf: String) = when (tf) { "60m" -> "1 hora"; "1d" -> "diário"; else -> tf.removeSuffix("m") + " min" }
 
     // ---------------- robô (Binance) ----------------
     /** Se o alvo ou o stop foi executado pela própria Binance, registra a venda e avisa. */
