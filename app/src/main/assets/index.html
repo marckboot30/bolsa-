@@ -121,6 +121,10 @@
   <label>Média lenta (períodos)</label><input type="number" id="cfgSlow" min="3" max="300">
   <label>Adicionar ação da B3 (ex.: WEGE3) ou cripto da Binance (ex.: ADABRL, PEPEUSDT)</label><input type="text" id="cfgAdd" placeholder="WEGE3 ou ADABRL" autocapitalize="characters">
   <label>Quando sair da operação</label><select id="cfgExit" class="sel" style="width:100%"></select>
+  <div class="sw"><span>Mini índice: sair sozinho ao bater a meta de lucro</span><input type="checkbox" id="cfgGoal"></div>
+  <div style="display:flex;gap:8px"><div style="flex:1"><label>Valor operado por contrato (R$)</label><input type="number" id="cfgCap" min="10" step="10"></div>
+  <div style="flex:1"><label>Meta de lucro (%)</label><input type="number" id="cfgPct" min="1" max="500"></div></div>
+  <p class="mut" id="cfgGoalTxt" style="font-size:13px;margin:4px 0 0"></p>
   <div class="sw"><span>Permitir operar vendido em ações e cripto (o mini índice sempre permite)</span><input type="checkbox" id="cfgShort"></div>
   <div class="sw"><span>Avisar no celular as entradas e saídas</span><input type="checkbox" id="cfgAlert"></div>
   <div class="sw"><span>Avisar quando romper máxima/mínima do dia</span><input type="checkbox" id="cfgBreak"></div>
@@ -160,7 +164,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem("aa." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem("aa." + k, JSON.stringify(v)); } catch (e) {} },
 };
-const cfg = Object.assign({ asset: "^BVSP", tf: "5m", fast: 9, slow: 21, alert: true, brk: true, auto: true, extra: [], watch: [], strat: {} }, store.get("cfg", {}));
+const cfg = Object.assign({ asset: "^BVSP", tf: "5m", fast: 9, slow: 21, alert: true, brk: true, auto: true, extra: [], watch: [], strat: {}, goalOn: true, goalCap: 150, goalPct: 30 }, store.get("cfg", {}));
 function assets() { return DEFAULT_ASSETS.concat(cfg.extra.map(c => /^[A-Z]{4}\d{1,2}$/.test(c) ? { id: c + ".SA", name: c } : { id: c, name: c + " (cripto)", crypto: true }).filter(a => !DEFAULT_ASSETS.some(d => d.id === a.id))); }
 const curAsset = () => assets().find(a => a.id === cfg.asset) || DEFAULT_ASSETS[0];
 const curTf = () => TFS.find(t => t.id === cfg.tf) || TFS[1];
@@ -236,6 +240,8 @@ const STRATS = [
   { id: "dow", type: "dow", k: 2, grp: "Topos e fundos", name: "Topos e fundos subindo / descendo" },
   { id: "don20", type: "don", n: 20, grp: "Topos e fundos", name: "Rompimento do canal de 20 candles" },
   { id: "dayhl", type: "dayhl", grp: "Topos e fundos", name: "Rompimento da máxima/mínima do dia", intradayOnly: true },
+  { id: "h1trend", type: "h1", win: 60, trend: true, grp: "Operacional", name: "Rompimento da 1ª hora a favor da tendência", intradayOnly: true },
+  { id: "h1", type: "h1", win: 60, trend: false, grp: "Operacional", name: "Rompimento da 1ª hora (sem filtro)", intradayOnly: true },
   { id: "eng", type: "eng", grp: "Candles", name: "Engolfo a favor da média 50" },
   { id: "eng0", type: "eng0", grp: "Candles", name: "Engolfo (todos)" },
   { id: "ham", type: "ham", grp: "Candles", name: "Martelo e estrela cadente a favor da média 50" },
@@ -252,6 +258,20 @@ function rsiArr(C, n) {
   g /= n; l /= n; out[n] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
   for (let i = n + 1; i < C.length; i++) { const d = C[i] - C[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l); }
   return out;
+}
+// faixa da 1ª hora de cada dia: máxima, mínima e tendência quando a hora fecha
+function firstHour(cs, win) {
+  const n = cs.length, out = new Array(n).fill(null), e21 = ema(cs.map(c => c.c), 21);
+  let day = null, t0 = 0, o = 0, hi = 0, lo = 0, last = 0, ready = null;
+  for (let i = 0; i < n; i++) { const c = cs[i];
+    if (c.day !== day) { day = c.day; t0 = c.t; o = c.o; hi = c.h; lo = c.l; last = c.c; ready = null; }
+    else if (!ready && c.t < t0 + win * 60) { hi = Math.max(hi, c.h); lo = Math.min(lo, c.l); last = c.c; }
+    if (!ready && (i === n - 1 || cs[i + 1].day !== day || cs[i + 1].t >= t0 + win * 60) && c.t < t0 + win * 60) {
+      const up = last > o && (e21[i] == null || last > e21[i]), dn = last < o && (e21[i] == null || last < e21[i]);
+      ready = { hi, lo, trend: up ? 1 : dn ? -1 : 0, end: i }; out[i] = ready; continue; }
+    out[i] = ready;
+  }
+  return { fh: out, e21 };
 }
 // direção do sinal em cada candle: 1 compra, -1 venda, 0 nada
 function stratDirs(cs, st) {
@@ -293,6 +313,13 @@ function stratDirs(cs, st) {
       const okUp = st.type === "eng0" || (e50[i] != null && C[i] > e50[i]), okDn = st.type === "eng0" || (e50[i] != null && C[i] < e50[i]);
       if (st.type === "ham") { if (p.k === "M" && okUp) d[i] = 1; else if (p.k === "EC" && okDn) d[i] = -1; }
       else { if (p.k === "EA" && okUp) d[i] = 1; else if (p.k === "EB" && okDn) d[i] = -1; } }
+  } else if (st.type === "h1") {
+    const { fh, e21 } = firstHour(cs, st.win || 60); let done = null;
+    for (let i = 1; i < n; i++) { const r = fh[i]; if (!r || r.end === i) continue;
+      if (done === cs[i].day) continue;
+      const okUp = !st.trend || (r.trend === 1 && e21[i] != null && C[i] > e21[i]), okDn = !st.trend || (r.trend === -1 && e21[i] != null && C[i] < e21[i]);
+      if (C[i] > r.hi && C[i - 1] <= r.hi && okUp) { d[i] = 1; done = cs[i].day; }
+      else if (C[i] < r.lo && C[i - 1] >= r.lo && okDn) { d[i] = -1; done = cs[i].day; } }
   } else if (st.type === "dayhl") {
     let hi = null, lo = null, day = null, upDone = false, dnDone = false;
     for (let i = 0; i < n; i++) { const c = cs[i];
@@ -346,6 +373,7 @@ function simulate(cs, d, from, to, o) {
   for (let i = Math.max(1, from); i < to; i++) {
     const c = cs[i]; let s = d[i];
     if (o.daily && cs[i].day !== cs[i - 1].day) s = 0; // não entra no salto da abertura
+    if (pos && i > ei && o.target) { const tp = entry + pos * o.target; if ((pos > 0 && c.h >= tp) || (pos < 0 && c.l <= tp)) close(i, tp, "bateu a meta de " + o.target + " pontos"); }
     if (pos && s === -pos) close(i, c.c, "sinal contrário");
     else if (pos && i > ei) { const why = exitReason(cs, i, pos, P, mode); if (why) close(i, c.c, why); }
     if (!pos && s && (s === 1 || o.short) && !(ev.length && ev[ev.length - 1].i === i && ev[ev.length - 1].why !== "sinal contrário")) { pos = s; entry = c.c; ei = i; ev.push({ i, type: "entry", dir: s, price: c.c }); }
@@ -357,7 +385,8 @@ function simulate(cs, d, from, to, o) {
   return { n: res.length + (open ? 1 : 0), closed: res.length, wins: wins + (open && pnl(cs[to - 1].c) > 0 ? 1 : 0), sum: res.reduce((a, b) => a + b, 0) + (open ? pnl(cs[to - 1].c) : 0), dd, ev, open };
 }
 const runBT = (cs, d, from, to, o) => simulate(cs, d, from, to, o);
-function btOpts(asset, tf) { return { exit: cfg.exit || "auto", short: !!asset.futures || !!cfg.short, daily: tf.intraday && !asset.crypto, pts: !!asset.futures, fee: asset.crypto ? .001 : .0008, feePts: 2 }; }
+function goalPts(asset) { return asset && asset.futures && cfg.goalOn ? Math.max(1, Math.round(cfg.goalCap * cfg.goalPct / 100 / asset.pointValue)) : 0; }
+function btOpts(asset, tf) { return { target: goalPts(asset), exit: cfg.exit || "auto", short: !!asset.futures || !!cfg.short, daily: tf.intraday && !asset.crypto, pts: !!asset.futures, fee: asset.crypto ? .001 : .0008, feePts: 2 }; }
 
 // ================= ANÁLISE =================
 function sma(arr, n) { const out = new Array(arr.length).fill(null); let s = 0; for (let i = 0; i < arr.length; i++) { s += arr[i]; if (i >= n) s -= arr[i - n]; if (i >= n - 1) out[i] = s / n; } return out; }
@@ -468,6 +497,9 @@ function draw() {
   }
   if (prevHL) { hline(prevHL.h, "#7d8796", "MÁX ONTEM", [2, 4]); hline(prevHL.l, "#7d8796", "MÍN ONTEM", [2, 4]); }
   if (dayHL) { hline(dayHL.h, "#26c281", "MÁX DO DIA"); hline(dayHL.l, "#ff5468", "MÍN DO DIA"); }
+  if (tf.intraday && an.st.type === "h1") { const r = firstHour(cs.slice(0, end), an.st.win || 60).fh[end - 1];
+    if (r && cs[r.end].day === lastDay) { hline(r.hi, "#4da3ff", "MÁX 1ª HORA" + (r.trend === 1 ? " ↑" : "")); hline(r.lo, "#ff9f43", "MÍN 1ª HORA" + (r.trend === -1 ? " ↓" : "")); } }
+  { const op = an.sim.open, tg = goalPts(curAsset()); if (op && tg) hline(op.entry + op.dir * tg, "#ffd166", "🎯 META"); }
   // candles
   const bw = Math.max(1, cw * .62);
   for (let i = start; i < end; i++) {
@@ -602,7 +634,7 @@ function renderPerf(bt, cs, asset, tf, f1) {
   const days = cs.length > 1 ? Math.max(1, Math.round((cs[cs.length - 1].t - cs[0].t) / 86400)) : 0;
   const hd = '<div class="hd"><span>DESEMPENHO DA ANÁLISE · ' + tf.label + (days ? ' · ' + days + ' dias' : '') + '</span><b>' + an.st.name + '</b></div>';
   if (!ex.length) { el.innerHTML = hd + '<p class="mut" style="font-size:13px;margin:8px 0 0">Ainda nenhuma operação encerrada nos dados do gráfico.</p>'; return; }
-  const open = bt.open ? (bt.open.dir === 1 ? "Comprado agora" : "Vendido agora") : "Fora agora";
+  const open = bt.open ? (bt.open.dir === 1 ? "Comprado agora" : "Vendido agora") : "Fora agora", tg = goalPts(asset), hits = ex.filter(e => /^bateu a meta/.test(e.why)).length;
   el.innerHTML = hd +
     '<div class="pbar">' + (w ? '<div class="w" style="width:' + wp + '%">' + (wp >= 18 ? wp + '% vitórias' : '') + '</div>' : '') +
     (l ? '<div class="l" style="width:' + (100 - wp) + '%">' + (100 - wp >= 18 ? (100 - wp) + '% derrotas' : '') + '</div>' : '') + '</div>' +
@@ -610,7 +642,8 @@ function renderPerf(bt, cs, asset, tf, f1) {
     '<p style="margin:2px 0 0;font-size:13px;color:#b9c1cf">A cada 100 entradas: <b class="up">' + wp + ' vitórias</b> e <b class="down">' + (100 - wp) + ' derrotas</b>.</p>' +
     '<div class="pnums"><div><b>' + buys + '</b><span>Compras</span></div><div><b>' + sells + '</b><span>Vendas</span></div><div><b>' + ex.length + '</b><span>Encerradas</span></div>' +
     '<div><b class="' + (bt.sum >= 0 ? "up" : "down") + '" style="font-size:15px">' + f1(bt.sum) + '</b><span>Resultado</span></div></div>' +
-    '<div class="row" style="font-size:12px;margin-top:6px"><span class="mut">' + open + '</span><span class="mut">Pior sequência <span class="down">' + f1(bt.dd) + '</span></span></div>';
+    '<div class="row" style="font-size:12px;margin-top:6px"><span class="mut">' + open + '</span><span class="mut">Pior sequência <span class="down">' + f1(bt.dd) + '</span></span></div>' +
+    (tg ? '<div class="row" style="font-size:12px"><span class="mut">🎯 Meta ' + tg + ' pts (R$ ' + (tg * asset.pointValue).toLocaleString("pt-BR", { minimumFractionDigits: 2 }) + ')</span><span class="up">bateu a meta ' + hits + ' de ' + ex.length + ' vezes</span></div>' : '');
 }
 
 // ================= ALERTAS =================
@@ -642,7 +675,7 @@ function checkAlerts() {
 // ================= VIGIA NO FUNDO =================
 function syncWatch() {
   store.set("cfg", cfg);
-  const list = cfg.watch.map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: cfg.exit || "auto", short: !!cfg.short || w.id === "^BVSP" }); });
+  const list = cfg.watch.map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: cfg.exit || "auto", short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)) }); });
   if (window.Android && Android.setWatch) Android.setWatch(JSON.stringify(list));
   renderWatch();
 }
@@ -839,9 +872,15 @@ document.getElementById("cfgBtn").onclick = () => {
   document.getElementById("cfgFast").value = cfg.fast; document.getElementById("cfgSlow").value = cfg.slow; document.getElementById("cfgAdd").value = "";
   const ex = document.getElementById("cfgExit"); ex.innerHTML = ""; for (const k in EXITS) { const o = document.createElement("option"); o.value = k; o.textContent = EXITS[k]; ex.appendChild(o); } ex.value = cfg.exit || "auto";
   document.getElementById("cfgShort").checked = !!cfg.short;
+  document.getElementById("cfgGoal").checked = !!cfg.goalOn; document.getElementById("cfgCap").value = cfg.goalCap; document.getElementById("cfgPct").value = cfg.goalPct; goalTxt();
   document.getElementById("cfgAlert").checked = cfg.alert; document.getElementById("cfgBreak").checked = cfg.brk; document.getElementById("cfgAuto").checked = cfg.auto;
   sheet.classList.add("open");
 };
+function goalTxt() {
+  const cap = +document.getElementById("cfgCap").value || 0, pct = +document.getElementById("cfgPct").value || 0, r = cap * pct / 100;
+  document.getElementById("cfgGoalTxt").innerHTML = "Meta: " + pct + "% de R$ " + cap.toLocaleString("pt-BR") + " = <b>R$ " + r.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "</b> = <b>" + Math.round(r / 0.20) + " pontos</b> por contrato (R$ 0,20 por ponto).";
+}
+["cfgCap", "cfgPct"].forEach(id => document.getElementById(id).addEventListener("input", goalTxt));
 sheet.addEventListener("click", e => { if (e.target === sheet) sheet.classList.remove("open"); });
 document.getElementById("cfgSave").onclick = () => {
   const f = Math.round(+document.getElementById("cfgFast").value), s = Math.round(+document.getElementById("cfgSlow").value);
@@ -849,6 +888,8 @@ document.getElementById("cfgSave").onclick = () => {
   const add = document.getElementById("cfgAdd").value.trim().toUpperCase().replace(/\.SA$/, "");
   if (/^[A-Z]{4}\d{1,2}$/.test(add) && !cfg.extra.includes(add)) { cfg.extra.push(add); cfg.asset = add + ".SA"; }
   else if (/^[A-Z0-9]{2,12}(BRL|USDT)$/.test(add) && !cfg.extra.includes(add)) { cfg.extra.push(add); cfg.asset = add; }
+  cfg.goalOn = document.getElementById("cfgGoal").checked;
+  const gc = +document.getElementById("cfgCap").value, gp = +document.getElementById("cfgPct").value; if (gc > 0) cfg.goalCap = gc; if (gp > 0) cfg.goalPct = gp;
   cfg.exit = document.getElementById("cfgExit").value; cfg.short = document.getElementById("cfgShort").checked;
   cfg.alert = document.getElementById("cfgAlert").checked; cfg.brk = document.getElementById("cfgBreak").checked; cfg.auto = document.getElementById("cfgAuto").checked;
   syncWatch(); sheet.classList.remove("open"); buildUi(); refresh();

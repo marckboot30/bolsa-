@@ -92,6 +92,24 @@ object Strategies {
                     if (type == "ham") { if (p == "M" && okUp) d[i] = 1 else if (p == "EC" && okDn) d[i] = -1 }
                     else { if (p == "EA" && okUp) d[i] = 1 else if (p == "EB" && okDn) d[i] = -1 } }
             }
+            "h1" -> {
+                val win = st.optInt("win", 60) * 60L; val trendF = st.optBoolean("trend", true); val e21 = ema(c, 21)
+                var day = Long.MIN_VALUE; var t0 = 0L; var o = 0.0; var hi = 0.0; var lo = 0.0; var last = 0.0
+                var ready = false; var trend = 0; var done = Long.MIN_VALUE
+                for (i in 0 until n) { val x = cs[i]; val dd = dayOf(x.t)
+                    if (dd != day) { day = dd; t0 = x.t; o = x.o; hi = x.h; lo = x.l; last = x.c; ready = false }
+                    else if (!ready && x.t < t0 + win) { hi = max(hi, x.h); lo = min(lo, x.l); last = x.c }
+                    if (!ready) {
+                        val closes = i == n - 1 || dayOf(cs[i + 1].t) != day || cs[i + 1].t >= t0 + win
+                        if (closes && x.t < t0 + win) { ready = true
+                            trend = if (last > o && (e21[i].isNaN() || last > e21[i])) 1 else if (last < o && (e21[i].isNaN() || last < e21[i])) -1 else 0 }
+                        continue
+                    }
+                    if (done == day || i == 0) continue
+                    val okUp = !trendF || (trend == 1 && !e21[i].isNaN() && c[i] > e21[i]); val okDn = !trendF || (trend == -1 && !e21[i].isNaN() && c[i] < e21[i])
+                    if (c[i] > hi && c[i - 1] <= hi && okUp) { d[i] = 1; done = day } else if (c[i] < lo && c[i - 1] >= lo && okDn) { d[i] = -1; done = day }
+                }
+            }
             "dayhl" -> {
                 var hi = 0.0; var lo = 0.0; var day = Long.MIN_VALUE; var upDone = false; var dnDone = false
                 for (i in 0 until n) { val x = cs[i]; val dd = dayOf(x.t)
@@ -128,7 +146,7 @@ object Strategies {
     }
 
     /** Mesma simulação do app: entra no sinal, sai na virada. Devolve os eventos. */
-    fun simulate(cs: List<Candle>, d: IntArray, mode: String, short: Boolean, daily: Boolean, dayOf: (Long) -> Long): List<Event> {
+    fun simulate(cs: List<Candle>, d: IntArray, mode: String, short: Boolean, daily: Boolean, target: Double = 0.0, dayOf: (Long) -> Long): List<Event> {
         val n = cs.size; val c = DoubleArray(n) { cs[it].c }; val e9 = emaPub(c, 9)
         val pats = Array(n) { pattern(cs, it) }
         val top = DoubleArray(n) { Double.NaN }; val bot = DoubleArray(n) { Double.NaN }
@@ -140,11 +158,13 @@ object Strategies {
             top[i] = t; bot[i] = b
         }
         val ev = ArrayList<Event>(); var pos = 0; var entry = 0.0; var ei = -1
-        fun close(i: Int, why: String) { ev.add(Event(i, false, pos, cs[i].c, entry, why)); pos = 0 }
+        fun close(i: Int, why: String, px: Double = cs[i].c) { ev.add(Event(i, false, pos, px, entry, why)); pos = 0 }
         for (i in 1 until n) {
             var s = d[i]
             if (daily && dayOf(cs[i].t) != dayOf(cs[i - 1].t)) s = 0
             var exitedNow = false
+            if (pos != 0 && i > ei && target > 0) { val tp = entry + pos * target
+                if ((pos > 0 && cs[i].h >= tp) || (pos < 0 && cs[i].l <= tp)) { close(i, "bateu a meta de ${target.toInt()} pontos", tp); exitedNow = true } }
             if (pos != 0 && s == -pos) close(i, "sinal contrário")
             else if (pos != 0 && i > ei) { val why = exitReason(cs, i, pos, e9, pats, top, bot, mode); if (why != null) { close(i, why); exitedNow = true } }
             if (pos == 0 && s != 0 && (s == 1 || short) && !exitedNow) { pos = s; entry = cs[i].c; ei = i; ev.add(Event(i, true, s, cs[i].c, cs[i].c, "")) }

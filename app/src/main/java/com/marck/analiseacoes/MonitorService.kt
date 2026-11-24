@@ -25,7 +25,7 @@ import java.util.TimeZone
 data class Watch(
     val id: String, val tf: String, val name: String, val src: String,
     val fast: Int, val slow: Int, val cross: Boolean, val brk: Boolean, val dec: Int, val b3: Boolean,
-    val strat: JSONObject, val stratName: String, val exit: String, val short: Boolean,
+    val strat: JSONObject, val stratName: String, val exit: String, val short: Boolean, val target: Double = 0.0,
 )
 
 object Watches {
@@ -38,7 +38,7 @@ object Watches {
             Watch(o.getString("id"), o.getString("tf"), o.optString("name", o.getString("id")), o.optString("src", "yahoo"),
                 o.optInt("fast", 9), o.optInt("slow", 21), o.optBoolean("cross", true), o.optBoolean("brk", true), o.optInt("dec", 2), o.optBoolean("b3", true),
                 o.optJSONObject("strat") ?: JSONObject().put("type", "ma").put("f", o.optInt("fast", 9)).put("s", o.optInt("slow", 21)),
-                o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false))
+                o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false), o.optDouble("target", 0.0))
         }
     }.getOrDefault(emptyList())
 
@@ -170,7 +170,7 @@ class MonitorService : Service() {
         val tfName = when (w.tf) { "60m" -> "1 hora"; "1d" -> "diário"; else -> w.tf.removeSuffix("m") + " min" }
         if (w.cross) {
             val dirs = Strategies.dirs(cs, w.strat) { day(it) }
-            val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d") { day(it) }
+            val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d", w.target) { day(it) }
             for (e in evs) {
                 if (e.i != k) continue
                 if (e.entry) send("${w.id}|${w.tf}|in|${c.t}",
