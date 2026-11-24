@@ -136,7 +136,7 @@
   <h2>Ajustes</h2>
   <label>Média rápida (períodos)</label><input type="number" id="cfgFast" min="2" max="100">
   <label>Média lenta (períodos)</label><input type="number" id="cfgSlow" min="3" max="300">
-  <label>Adicionar ação da B3 (ex.: WEGE3) ou cripto da Binance (ex.: ADABRL, PEPEUSDT)</label><input type="text" id="cfgAdd" placeholder="WEGE3 ou ADABRL" autocapitalize="characters">
+  <label>Adicionar ação da B3 (ex.: WEGE3), dos EUA (ex.: AMZN) ou cripto da Binance (ex.: ADABRL)</label><input type="text" id="cfgAdd" placeholder="WEGE3 ou ADABRL" autocapitalize="characters">
   <label>Quando sair da operação</label><select id="cfgExit" class="sel" style="width:100%"></select>
   <div class="sw"><span>Mini índice: sair sozinho ao bater a meta de lucro</span><input type="checkbox" id="cfgGoal"></div>
   <div style="display:flex;gap:8px"><div style="flex:1"><label>Valor operado por contrato (R$)</label><input type="number" id="cfgCap" min="10" step="10"></div>
@@ -154,14 +154,182 @@
 // ================= CONFIG =================
 const DEFAULT_ASSETS = [
   { id: "^BVSP", name: "Mini índice (WIN) · via Ibovespa", pointValue: 0.20, unit: "pts", futures: true },
-  { id: "PETR4.SA", name: "PETR4 · Petrobras" }, { id: "VALE3.SA", name: "VALE3 · Vale" },
-  { id: "ITUB4.SA", name: "ITUB4 · Itaú" }, { id: "BBAS3.SA", name: "BBAS3 · Banco do Brasil" },
-  { id: "BBDC4.SA", name: "BBDC4 · Bradesco" }, { id: "MGLU3.SA", name: "MGLU3 · Magazine Luiza" },
   { id: "BTCBRL", name: "Bitcoin · BTC/BRL", crypto: true }, { id: "ETHBRL", name: "Ethereum · ETH/BRL", crypto: true },
   { id: "SOLBRL", name: "Solana · SOL/BRL", crypto: true }, { id: "BNBBRL", name: "BNB · BNB/BRL", crypto: true },
   { id: "XRPBRL", name: "XRP · XRP/BRL", crypto: true }, { id: "DOGEBRL", name: "Dogecoin · DOGE/BRL", crypto: true },
   { id: "USDTBRL", name: "Dólar cripto · USDT/BRL", crypto: true },
+  { id: "BTCUSDT", name: "Bitcoin · BTC/USDT", crypto: true }, { id: "ETHUSDT", name: "Ethereum · ETH/USDT", crypto: true },
+  { id: "SOLUSDT", name: "Solana · SOL/USDT", crypto: true },
+  { id: "PETR4.SA", name: "PETR4 · Petrobras PN", grp: "Ações da B3" },
+  { id: "PETR3.SA", name: "PETR3 · Petrobras ON", grp: "Ações da B3" },
+  { id: "VALE3.SA", name: "VALE3 · Vale", grp: "Ações da B3" },
+  { id: "ITUB4.SA", name: "ITUB4 · Itaú", grp: "Ações da B3" },
+  { id: "BBDC4.SA", name: "BBDC4 · Bradesco PN", grp: "Ações da B3" },
+  { id: "BBDC3.SA", name: "BBDC3 · Bradesco ON", grp: "Ações da B3" },
+  { id: "BBAS3.SA", name: "BBAS3 · Banco do Brasil", grp: "Ações da B3" },
+  { id: "SANB11.SA", name: "SANB11 · Santander", grp: "Ações da B3" },
+  { id: "BPAC11.SA", name: "BPAC11 · BTG Pactual", grp: "Ações da B3" },
+  { id: "ITSA4.SA", name: "ITSA4 · Itaúsa", grp: "Ações da B3" },
+  { id: "B3SA3.SA", name: "B3SA3 · B3", grp: "Ações da B3" },
+  { id: "BBSE3.SA", name: "BBSE3 · BB Seguridade", grp: "Ações da B3" },
+  { id: "PSSA3.SA", name: "PSSA3 · Porto Seguro", grp: "Ações da B3" },
+  { id: "CXSE3.SA", name: "CXSE3 · Caixa Seguridade", grp: "Ações da B3" },
+  { id: "IRBR3.SA", name: "IRBR3 · IRB Re", grp: "Ações da B3" },
+  { id: "ABCB4.SA", name: "ABCB4 · ABC Brasil", grp: "Ações da B3" },
+  { id: "BPAN4.SA", name: "BPAN4 · Banco Pan", grp: "Ações da B3" },
+  { id: "BRSR6.SA", name: "BRSR6 · Banrisul", grp: "Ações da B3" },
+  { id: "ABEV3.SA", name: "ABEV3 · Ambev", grp: "Ações da B3" },
+  { id: "WEGE3.SA", name: "WEGE3 · WEG", grp: "Ações da B3" },
+  { id: "EMBR3.SA", name: "EMBR3 · Embraer", grp: "Ações da B3" },
+  { id: "ELET3.SA", name: "ELET3 · Eletrobras ON", grp: "Ações da B3" },
+  { id: "ELET6.SA", name: "ELET6 · Eletrobras PNB", grp: "Ações da B3" },
+  { id: "SUZB3.SA", name: "SUZB3 · Suzano", grp: "Ações da B3" },
+  { id: "KLBN11.SA", name: "KLBN11 · Klabin", grp: "Ações da B3" },
+  { id: "GGBR4.SA", name: "GGBR4 · Gerdau", grp: "Ações da B3" },
+  { id: "GOAU4.SA", name: "GOAU4 · Metalúrgica Gerdau", grp: "Ações da B3" },
+  { id: "CSNA3.SA", name: "CSNA3 · CSN", grp: "Ações da B3" },
+  { id: "USIM5.SA", name: "USIM5 · Usiminas", grp: "Ações da B3" },
+  { id: "CMIN3.SA", name: "CMIN3 · CSN Mineração", grp: "Ações da B3" },
+  { id: "BRAP4.SA", name: "BRAP4 · Bradespar", grp: "Ações da B3" },
+  { id: "PRIO3.SA", name: "PRIO3 · PRIO", grp: "Ações da B3" },
+  { id: "RECV3.SA", name: "RECV3 · PetroReconcavo", grp: "Ações da B3" },
+  { id: "BRAV3.SA", name: "BRAV3 · Brava Energia", grp: "Ações da B3" },
+  { id: "CSAN3.SA", name: "CSAN3 · Cosan", grp: "Ações da B3" },
+  { id: "RAIZ4.SA", name: "RAIZ4 · Raízen", grp: "Ações da B3" },
+  { id: "UGPA3.SA", name: "UGPA3 · Ultrapar", grp: "Ações da B3" },
+  { id: "VBBR3.SA", name: "VBBR3 · Vibra", grp: "Ações da B3" },
+  { id: "EQTL3.SA", name: "EQTL3 · Equatorial", grp: "Ações da B3" },
+  { id: "SBSP3.SA", name: "SBSP3 · Sabesp", grp: "Ações da B3" },
+  { id: "CMIG4.SA", name: "CMIG4 · Cemig", grp: "Ações da B3" },
+  { id: "CPFE3.SA", name: "CPFE3 · CPFL", grp: "Ações da B3" },
+  { id: "TAEE11.SA", name: "TAEE11 · Taesa", grp: "Ações da B3" },
+  { id: "EGIE3.SA", name: "EGIE3 · Engie", grp: "Ações da B3" },
+  { id: "ENGI11.SA", name: "ENGI11 · Energisa", grp: "Ações da B3" },
+  { id: "ISAE4.SA", name: "ISAE4 · ISA Energia", grp: "Ações da B3" },
+  { id: "AURE3.SA", name: "AURE3 · Auren", grp: "Ações da B3" },
+  { id: "ENEV3.SA", name: "ENEV3 · Eneva", grp: "Ações da B3" },
+  { id: "ALUP11.SA", name: "ALUP11 · Alupar", grp: "Ações da B3" },
+  { id: "SAPR11.SA", name: "SAPR11 · Sanepar", grp: "Ações da B3" },
+  { id: "CSMG3.SA", name: "CSMG3 · Copasa", grp: "Ações da B3" },
+  { id: "RENT3.SA", name: "RENT3 · Localiza", grp: "Ações da B3" },
+  { id: "MOVI3.SA", name: "MOVI3 · Movida", grp: "Ações da B3" },
+  { id: "VAMO3.SA", name: "VAMO3 · Vamos", grp: "Ações da B3" },
+  { id: "SIMH3.SA", name: "SIMH3 · Simpar", grp: "Ações da B3" },
+  { id: "RAIL3.SA", name: "RAIL3 · Rumo", grp: "Ações da B3" },
+  { id: "ECOR3.SA", name: "ECOR3 · Ecorodovias", grp: "Ações da B3" },
+  { id: "STBP3.SA", name: "STBP3 · Santos Brasil", grp: "Ações da B3" },
+  { id: "RADL3.SA", name: "RADL3 · Raia Drogasil", grp: "Ações da B3" },
+  { id: "RDOR3.SA", name: "RDOR3 · Rede D'Or", grp: "Ações da B3" },
+  { id: "HAPV3.SA", name: "HAPV3 · Hapvida", grp: "Ações da B3" },
+  { id: "FLRY3.SA", name: "FLRY3 · Fleury", grp: "Ações da B3" },
+  { id: "HYPE3.SA", name: "HYPE3 · Hypera", grp: "Ações da B3" },
+  { id: "LREN3.SA", name: "LREN3 · Lojas Renner", grp: "Ações da B3" },
+  { id: "MGLU3.SA", name: "MGLU3 · Magazine Luiza", grp: "Ações da B3" },
+  { id: "AZZA3.SA", name: "AZZA3 · Azzas 2154", grp: "Ações da B3" },
+  { id: "VIVA3.SA", name: "VIVA3 · Vivara", grp: "Ações da B3" },
+  { id: "SBFG3.SA", name: "SBFG3 · Grupo SBF", grp: "Ações da B3" },
+  { id: "PETZ3.SA", name: "PETZ3 · Petz", grp: "Ações da B3" },
+  { id: "ALPA4.SA", name: "ALPA4 · Alpargatas", grp: "Ações da B3" },
+  { id: "GRND3.SA", name: "GRND3 · Grendene", grp: "Ações da B3" },
+  { id: "VULC3.SA", name: "VULC3 · Vulcabras", grp: "Ações da B3" },
+  { id: "ASAI3.SA", name: "ASAI3 · Assaí", grp: "Ações da B3" },
+  { id: "CRFB3.SA", name: "CRFB3 · Carrefour Brasil", grp: "Ações da B3" },
+  { id: "PCAR3.SA", name: "PCAR3 · Pão de Açúcar", grp: "Ações da B3" },
+  { id: "MDIA3.SA", name: "MDIA3 · M. Dias Branco", grp: "Ações da B3" },
+  { id: "SMTO3.SA", name: "SMTO3 · São Martinho", grp: "Ações da B3" },
+  { id: "SLCE3.SA", name: "SLCE3 · SLC Agrícola", grp: "Ações da B3" },
+  { id: "BEEF3.SA", name: "BEEF3 · Minerva", grp: "Ações da B3" },
+  { id: "CYRE3.SA", name: "CYRE3 · Cyrela", grp: "Ações da B3" },
+  { id: "MRVE3.SA", name: "MRVE3 · MRV", grp: "Ações da B3" },
+  { id: "EZTC3.SA", name: "EZTC3 · EZTEC", grp: "Ações da B3" },
+  { id: "DIRR3.SA", name: "DIRR3 · Direcional", grp: "Ações da B3" },
+  { id: "CURY3.SA", name: "CURY3 · Cury", grp: "Ações da B3" },
+  { id: "MULT3.SA", name: "MULT3 · Multiplan", grp: "Ações da B3" },
+  { id: "ALOS3.SA", name: "ALOS3 · Allos", grp: "Ações da B3" },
+  { id: "IGTI11.SA", name: "IGTI11 · Iguatemi", grp: "Ações da B3" },
+  { id: "VIVT3.SA", name: "VIVT3 · Vivo", grp: "Ações da B3" },
+  { id: "TIMS3.SA", name: "TIMS3 · TIM", grp: "Ações da B3" },
+  { id: "TOTS3.SA", name: "TOTS3 · Totvs", grp: "Ações da B3" },
+  { id: "LWSA3.SA", name: "LWSA3 · Locaweb", grp: "Ações da B3" },
+  { id: "CASH3.SA", name: "CASH3 · Méliuz", grp: "Ações da B3" },
+  { id: "POSI3.SA", name: "POSI3 · Positivo", grp: "Ações da B3" },
+  { id: "INTB3.SA", name: "INTB3 · Intelbras", grp: "Ações da B3" },
+  { id: "YDUQ3.SA", name: "YDUQ3 · Yduqs", grp: "Ações da B3" },
+  { id: "COGN3.SA", name: "COGN3 · Cogna", grp: "Ações da B3" },
+  { id: "CVCB3.SA", name: "CVCB3 · CVC", grp: "Ações da B3" },
+  { id: "DXCO3.SA", name: "DXCO3 · Dexco", grp: "Ações da B3" },
+  { id: "BRKM5.SA", name: "BRKM5 · Braskem", grp: "Ações da B3" },
+  { id: "UNIP6.SA", name: "UNIP6 · Unipar", grp: "Ações da B3" },
+  { id: "POMO4.SA", name: "POMO4 · Marcopolo", grp: "Ações da B3" },
+  { id: "RAPT4.SA", name: "RAPT4 · Randon", grp: "Ações da B3" },
+  { id: "TUPY3.SA", name: "TUPY3 · Tupy", grp: "Ações da B3" },
+  { id: "AAPL", name: "AAPL · Apple", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "MSFT", name: "MSFT · Microsoft", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "NVDA", name: "NVDA · Nvidia", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "AMZN", name: "AMZN · Amazon", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "GOOGL", name: "GOOGL · Google (Alphabet)", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "META", name: "META · Meta (Facebook)", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "TSLA", name: "TSLA · Tesla", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "AVGO", name: "AVGO · Broadcom", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "BRK-B", name: "BRK-B · Berkshire Hathaway", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "JPM", name: "JPM · JPMorgan", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "V", name: "V · Visa", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "MA", name: "MA · Mastercard", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "UNH", name: "UNH · UnitedHealth", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "LLY", name: "LLY · Eli Lilly", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "JNJ", name: "JNJ · Johnson & Johnson", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "XOM", name: "XOM · ExxonMobil", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "CVX", name: "CVX · Chevron", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "WMT", name: "WMT · Walmart", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "COST", name: "COST · Costco", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "PG", name: "PG · Procter & Gamble", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "HD", name: "HD · Home Depot", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "KO", name: "KO · Coca-Cola", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "PEP", name: "PEP · PepsiCo", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "MCD", name: "MCD · McDonald's", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "SBUX", name: "SBUX · Starbucks", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "NKE", name: "NKE · Nike", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "DIS", name: "DIS · Disney", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "NFLX", name: "NFLX · Netflix", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "AMD", name: "AMD · AMD", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "INTC", name: "INTC · Intel", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "QCOM", name: "QCOM · Qualcomm", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "TXN", name: "TXN · Texas Instruments", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "MU", name: "MU · Micron", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "ORCL", name: "ORCL · Oracle", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "CRM", name: "CRM · Salesforce", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "ADBE", name: "ADBE · Adobe", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "CSCO", name: "CSCO · Cisco", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "IBM", name: "IBM · IBM", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "PLTR", name: "PLTR · Palantir", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "SNOW", name: "SNOW · Snowflake", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "SHOP", name: "SHOP · Shopify", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "UBER", name: "UBER · Uber", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "ABNB", name: "ABNB · Airbnb", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "PYPL", name: "PYPL · PayPal", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "COIN", name: "COIN · Coinbase", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "MSTR", name: "MSTR · MicroStrategy", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "BAC", name: "BAC · Bank of America", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "WFC", name: "WFC · Wells Fargo", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "GS", name: "GS · Goldman Sachs", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "MS", name: "MS · Morgan Stanley", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "C", name: "C · Citigroup", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "BA", name: "BA · Boeing", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "CAT", name: "CAT · Caterpillar", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "GE", name: "GE · GE Aerospace", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "F", name: "F · Ford", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "GM", name: "GM · General Motors", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "T", name: "T · AT&T", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "VZ", name: "VZ · Verizon", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "PFE", name: "PFE · Pfizer", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "MRK", name: "MRK · Merck", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "ABBV", name: "ABBV · AbbVie", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "SPY", name: "SPY · ETF S&P 500", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "QQQ", name: "QQQ · ETF Nasdaq 100", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "DIA", name: "DIA · ETF Dow Jones", us: true, grp: "Ações dos EUA (US$)" },
+  { id: "IWM", name: "IWM · ETF Russell 2000", us: true, grp: "Ações dos EUA (US$)" },
 ];
+DEFAULT_ASSETS.forEach(a => { if (!a.grp) a.grp = a.futures ? "Índice" : a.crypto ? "Cripto (Binance)" : "Ações da B3"; });
 // y/b = intervalo que a fonte entrega (Yahoo/Binance); quando é menor que o tempo escolhido, o app junta os candles
 const TFS = [
   { id: "1m", label: "1 min", min: 1, y: "1m", b: "1m", range: "5d", intraday: true },
@@ -182,7 +350,12 @@ const store = {
   set(k, v) { try { localStorage.setItem("aa." + k, JSON.stringify(v)); } catch (e) {} },
 };
 const cfg = Object.assign({ asset: "^BVSP", tf: "5m", fast: 9, slow: 21, alert: true, brk: true, auto: true, extra: [], watch: [], strat: {}, goalOn: true, goalCap: 150, goalPct: 30 }, store.get("cfg", {}));
-function assets() { return DEFAULT_ASSETS.concat(cfg.extra.map(c => /^[A-Z]{4}\d{1,2}$/.test(c) ? { id: c + ".SA", name: c } : { id: c, name: c + " (cripto)", crypto: true }).filter(a => !DEFAULT_ASSETS.some(d => d.id === a.id))); }
+function fillAssets(sel) {
+  const groups = {};
+  for (const a of assets()) { const g = a.grp || "Outros"; if (!groups[g]) { groups[g] = document.createElement("optgroup"); groups[g].label = g; sel.appendChild(groups[g]); }
+    const o = document.createElement("option"); o.value = a.id; o.textContent = a.name; groups[g].appendChild(o); }
+}
+function assets() { return DEFAULT_ASSETS.concat(cfg.extra.map(c => /^[A-Z]{4}\d{1,2}$/.test(c) ? { id: c + ".SA", name: c, grp: "Ações da B3" } : /^US:/.test(c) ? { id: c.slice(3), name: c.slice(3) + " (EUA)", us: true, grp: "Ações dos EUA (US$)" } : { id: c, name: c + " (cripto)", crypto: true, grp: "Cripto (Binance)" }).filter(a => !DEFAULT_ASSETS.some(d => d.id === a.id))); }
 const curAsset = () => assets().find(a => a.id === cfg.asset) || DEFAULT_ASSETS[0];
 const curTf = () => TFS.find(t => t.id === cfg.tf) || TFS[1];
 
@@ -582,10 +755,10 @@ function render() {
   if (prevTxt !== newTxt && prevPrice != null) { lastEl.classList.remove("tickUp", "tickDown"); void lastEl.offsetWidth; lastEl.classList.add(last.c >= prevPrice ? "tickUp" : "tickDown"); clearTimeout(tickT); tickT = setTimeout(() => lastEl.classList.remove("tickUp", "tickDown"), 700); }
   prevPrice = last.c; lastEl.textContent = newTxt;
   setText("chg", (ch >= 0 ? "+" : "") + fmt(ch, asset) + " (" + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%)", ch >= 0 ? "up" : "down");
-  setText("asof", "Candle de " + (tf.intraday ? last.date + " " + last.hm : last.date) + (asset.crypto ? "" : " · dados da B3 com atraso de ~15 min"));
+  setText("asof", "Candle de " + (tf.intraday ? last.date + " " + last.hm : last.date) + (asset.crypto ? "" : asset.us ? " · horário de Brasília · preços em US$" : " · dados da B3 com atraso de ~15 min"));
   const open = marketOpen(asset), tag = document.getElementById("liveTag");
   tag.className = "live" + (open ? " on" : "");
-  setText("liveTxt", asset.crypto ? (streamOk ? "AO VIVO" : "conectando…") : (open ? "AO VIVO (atraso 15 min)" : "mercado fechado"));
+  setText("liveTxt", asset.crypto ? (streamOk ? "AO VIVO" : "conectando…") : (open ? (asset.us ? "AO VIVO (EUA)" : "AO VIVO (atraso 15 min)") : "mercado fechado"));
   document.getElementById("legend").innerHTML = '<span><i style="background:#ffc531"></i>Média ' + cfg.fast + '</span><span><i style="background:#a77bff"></i>Média ' + cfg.slow + '</span>' + (tf.intraday ? '<span><i style="background:#26c281"></i>Máx dia</span><span><i style="background:#ff5468"></i>Mín dia</span>' : '') + '<span>▲ entrada compra ▼ entrada venda <b style="color:#ffc531">✕</b> saída</span>';
   // operação
   const sim = an.sim, op = sim.open, lastEv = sim.ev[sim.ev.length - 1], when = i => tf.intraday ? cs[i].date + " " + cs[i].hm : cs[i].date;
@@ -789,7 +962,7 @@ function renderWatch() {
 function toggleWatch() {
   const a = curAsset();
   if (isWatched(a.id, cfg.tf)) cfg.watch = cfg.watch.filter(w => !(w.id === a.id && w.tf === cfg.tf));
-  else cfg.watch.push({ id: a.id, tf: cfg.tf, name: a.name, src: a.crypto ? "binance" : "yahoo", dec: a.futures ? 0 : 2, b3: !a.crypto });
+  else cfg.watch.push({ id: a.id, tf: cfg.tf, name: a.name, src: a.crypto ? "binance" : "yahoo", dec: a.futures ? 0 : 2, b3: !a.crypto, cur: a.us ? "US$ " : a.crypto && /USDT$/.test(a.id) ? "" : "R$ " });
   syncWatch();
 }
 document.getElementById("watchBtn").onclick = toggleWatch;
@@ -801,7 +974,7 @@ const optSheet = document.getElementById("opt"), optOut = document.getElementByI
 document.querySelector("#opt p").textContent = document.querySelector("#opt p").textContent.replace("${n}", STRATS.length);
 document.getElementById("optOpen").onclick = () => {
   const sel = document.getElementById("optAsset"); sel.innerHTML = "";
-  for (const a of assets()) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.name; sel.appendChild(o); }
+  fillAssets(sel);
   sel.value = cfg.asset; sel.onchange = renderOptTfs; renderOptTfs(); optOut.innerHTML = ""; optSheet.classList.add("open");
 };
 optSheet.addEventListener("click", e => { if (e.target === optSheet) optSheet.classList.remove("open"); });
@@ -898,6 +1071,9 @@ function showOpt(a) {
 let ws = null, wsKey = null, streamOk = false, prevPrice = null, tickT = null, drawPending = false;
 function marketOpen(a) {
   if (a.crypto) return true;
+  if (a.us) { // bolsa de Nova York: 9h30 às 16h no horário de lá
+    try { const p = {}; new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).forEach(x => p[x.type] = x.value);
+      const mm = +p.hour * 60 + +p.minute; return !/Sat|Sun/.test(p.weekday) && mm >= 570 && mm <= 965; } catch (e) { return true; } }
   const d = new Date(Date.now() - 3 * 3600 * 1000), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes();
   return wd >= 1 && wd <= 5 && m >= 9 * 60 && m <= 18 * 60 + 30;
 }
@@ -954,7 +1130,7 @@ async function refresh(keepView) {
 }
 function buildUi() {
   const sel = document.getElementById("asset"); sel.innerHTML = "";
-  for (const a of assets()) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.name; sel.appendChild(o); }
+  fillAssets(sel);
   renderWatch();
   sel.value = cfg.asset; sel.onchange = () => { cfg.asset = sel.value; store.set("cfg", cfg); data = null; stopStream(); prevPrice = null; draw(); refresh(); };
   const box = document.getElementById("tfs"); box.innerHTML = "";
@@ -982,6 +1158,7 @@ document.getElementById("cfgSave").onclick = () => {
   const add = document.getElementById("cfgAdd").value.trim().toUpperCase().replace(/\.SA$/, "");
   if (/^[A-Z]{4}\d{1,2}$/.test(add) && !cfg.extra.includes(add)) { cfg.extra.push(add); cfg.asset = add + ".SA"; }
   else if (/^[A-Z0-9]{2,12}(BRL|USDT)$/.test(add) && !cfg.extra.includes(add)) { cfg.extra.push(add); cfg.asset = add; }
+  else if (/^[A-Z]{1,5}(-[A-Z])?$/.test(add) && !cfg.extra.includes("US:" + add) && !DEFAULT_ASSETS.some(a => a.id === add)) { cfg.extra.push("US:" + add); cfg.asset = add; }
   cfg.goalOn = document.getElementById("cfgGoal").checked;
   const gc = +document.getElementById("cfgCap").value, gp = +document.getElementById("cfgPct").value; if (gc > 0) cfg.goalCap = gc; if (gp > 0) cfg.goalPct = gp;
   cfg.exit = document.getElementById("cfgExit").value; cfg.short = document.getElementById("cfgShort").checked;

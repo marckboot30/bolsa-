@@ -26,7 +26,7 @@ data class Watch(
     val id: String, val tf: String, val name: String, val src: String,
     val fast: Int, val slow: Int, val cross: Boolean, val brk: Boolean, val dec: Int, val b3: Boolean,
     val strat: JSONObject, val stratName: String, val exit: String, val short: Boolean, val target: Double = 0.0,
-    val robot: Boolean = false, val robotQuote: Double = 0.0,
+    val robot: Boolean = false, val robotQuote: Double = 0.0, val cur: String = "R$ ",
 )
 
 object Watches {
@@ -40,7 +40,7 @@ object Watches {
                 o.optInt("fast", 9), o.optInt("slow", 21), o.optBoolean("cross", true), o.optBoolean("brk", true), o.optInt("dec", 2), o.optBoolean("b3", true),
                 o.optJSONObject("strat") ?: JSONObject().put("type", "ma").put("f", o.optInt("fast", 9)).put("s", o.optInt("slow", 21)),
                 o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false), o.optDouble("target", 0.0),
-                o.optBoolean("robot", false), o.optDouble("robotQuote", 0.0))
+                o.optBoolean("robot", false), o.optDouble("robotQuote", 0.0), o.optString("cur", if (o.optString("id").endsWith("USDT")) "" else "R$ "))
         }
     }.getOrDefault(emptyList())
 
@@ -227,7 +227,7 @@ class MonitorService : Service() {
     private fun fmt(v: Double, w: Watch): String {
         val dec = if (w.dec == 0) 0 else if (!w.b3 && v < 10) 4 else 2
         val nf = java.text.NumberFormat.getNumberInstance(Locale("pt", "BR")).apply { minimumFractionDigits = dec; maximumFractionDigits = dec }
-        return (if (w.dec == 0) "" else "R$ ") + nf.format(v)
+        return (if (w.dec == 0) "" else w.cur) + nf.format(v)
     }
 
     private fun send(key: String, title: String, text: String) {

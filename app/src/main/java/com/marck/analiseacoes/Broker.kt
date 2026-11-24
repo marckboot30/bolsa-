@@ -126,7 +126,7 @@ object Broker {
         return Sym(s.getString("baseAsset"), s.getString("quoteAsset"), step, minQty, minN).also { syms[symbol] = it }
     }
 
-    private fun resumo(o: JSONObject, side: String, symbol: String, why: String): JSONObject {
+    private fun resumo(ctx: Context, o: JSONObject, side: String, symbol: String, why: String): JSONObject {
         val qty = o.optString("executedQty", "0").toDouble(); val quote = o.optString("cummulativeQuoteQty", "0").toDouble()
         return JSONObject().put("t", System.currentTimeMillis()).put("side", side).put("symbol", symbol).put("qty", qty).put("quote", quote)
             .put("price", if (qty > 0) quote / qty else 0.0).put("mode", mode(ctx)).put("status", o.optString("status")).put("why", why).put("id", o.optLong("orderId"))
@@ -138,7 +138,7 @@ object Broker {
         if (s.minNotional > 0 && quoteQty < s.minNotional) throw BinanceError(-1013, "O mínimo por ordem em $symbol é ${s.minNotional} ${s.quote}.")
         val o = JSONObject(signed(ctx, "POST", "/api/v3/order", mapOf("symbol" to symbol, "side" to "BUY", "type" to "MARKET",
             "quoteOrderQty" to BigDecimal(quoteQty).setScale(2, RoundingMode.DOWN).toPlainString(), "newOrderRespType" to "FULL")))
-        return resumo(o, "BUY", symbol, why).also { log(ctx, it) }
+        return resumo(ctx, o, "BUY", symbol, why).also { log(ctx, it) }
     }
 
     /** Vende tudo o que tiver do ativo (ex.: todo o BTC). */
@@ -150,7 +150,7 @@ object Broker {
         if (qty <= BigDecimal.ZERO || qty < s.minQty) return null
         val o = JSONObject(signed(ctx, "POST", "/api/v3/order", mapOf("symbol" to symbol, "side" to "SELL", "type" to "MARKET",
             "quantity" to qty.stripTrailingZeros().toPlainString(), "newOrderRespType" to "FULL")))
-        return resumo(o, "SELL", symbol, why).also { log(ctx, it) }
+        return resumo(ctx, o, "SELL", symbol, why).also { log(ctx, it) }
     }
 
     fun log(ctx: Context, o: JSONObject) {
