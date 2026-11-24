@@ -3,7 +3,6 @@ package com.marck.analiseacoes
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -71,18 +70,27 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
+        fun setWatch(json: String) {
+            Watches.save(this@MainActivity, json)
+            runOnUiThread { runCatching { Watches.apply(this@MainActivity) } }
+        }
+
+        @JavascriptInterface
+        fun batteryExempt() {
+            runOnUiThread {
+                runCatching {
+                    startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:$packageName")))
+                }.onFailure { runCatching { startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } }
+            }
+        }
+
+        @JavascriptInterface
         fun notify(title: String, text: String) {
             runOnUiThread { showNotification(title, text) }
         }
     }
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            val ch = NotificationChannel("sinais", "Sinais de compra e venda", NotificationManager.IMPORTANCE_HIGH)
-            ch.enableVibration(true)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
-        }
-    }
+    private fun createChannel() = MonitorService.createChannels(this)
 
     private fun showNotification(title: String, text: String) {
         val pi = PendingIntent.getActivity(
