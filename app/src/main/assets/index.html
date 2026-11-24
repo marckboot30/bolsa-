@@ -75,6 +75,11 @@
   .star.fav { color: #ffd166; }
   .gh { font-size: 12px; font-weight: 800; color: #8a94a6; text-transform: uppercase; letter-spacing: .5px; margin: 12px 8px 4px; }
   .hidden { display: none !important; }
+  .orow { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 12px; background: #141a25; border: 1px solid #1c2433; margin-bottom: 6px; }
+  .orow:active { background: #1a2335; }
+  .orow .tx { flex: 1; min-width: 0; } .orow .tx b { font-size: 15px; }
+  .orow small { display: block; font-size: 12px; color: #8a94a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .orow .rt { text-align: right; flex: none; } .orow .rt b { font-size: 15px; }
   .sheet h2 { margin: 0 0 12px; font-size: 18px; }
   .sheet label { display: block; font-size: 13px; color: #8a94a6; margin: 12px 0 6px; }
   #robotCard input:not([type=checkbox]), #robotCard label { display: block; } #robotCard label { font-size: 13px; color: #b9c1cf; margin: 8px 0 4px; }
@@ -169,8 +174,8 @@
 
 <div class="sheet" id="opt"><div class="box">
   <h2>🔬 Melhor estratégia</h2>
-  <p class="mut" style="margin:0;font-size:13px">Testa ${n} análises (candles, médias, topos e fundos, rompimentos, IFR, Bollinger e MACD) no histórico. Mostra o resultado nos últimos 30, 60 e 90 dias, já descontando taxas.</p>
-  <label>Ativo para analisar</label><select id="optAsset" class="sel" style="width:100%"></select>
+  <p class="mut" style="margin:0;font-size:13px">Testa ${n} análises × 3 saídas em cada tempo gráfico, já descontando as taxas.</p>
+  <label>O que analisar</label><select id="optAsset" class="sel" style="width:100%"></select>
   <label>Período da análise</label>
   <div class="tf" id="optDays" style="padding:0"></div>
   <label>Tempos gráficos para comparar (toque para marcar)</label>
@@ -1214,15 +1219,16 @@ const optSheet = document.getElementById("opt"), optOut = document.getElementByI
 document.querySelector("#opt p").textContent = document.querySelector("#opt p").textContent.replace("${n}", STRATS.length);
 document.getElementById("optOpen").onclick = () => {
   const sel = document.getElementById("optAsset"); sel.innerHTML = "";
+  const all = document.createElement("option"); all.value = ALL; all.textContent = "⭐ Todas as criptos (" + optCoins().length + ")"; sel.appendChild(all);
   fillAssets(sel);
-  sel.value = cfg.asset; sel.onchange = renderOptTfs; renderOptTfs(); optOut.innerHTML = ""; optSheet.classList.add("open");
+  sel.value = cfg.optAll === false ? cfg.asset : ALL; sel.addEventListener("change", () => { cfg.optAll = sel.value === ALL; store.set("cfg", cfg); }); sel.onchange = renderOptTfs; renderOptTfs(); optOut.innerHTML = ""; optSheet.classList.add("open");
 };
 optSheet.addEventListener("click", e => { if (e.target === optSheet) optSheet.classList.remove("open"); });
 let optResults = [], optDays = 30, optSort = store.get("optSort", "sum");
 const PERIODS = [30, 60, 90];
 function renderDays() {
   const box = document.getElementById("optDays"); box.innerHTML = "";
-  for (const d of PERIODS) { const b = document.createElement("button"); b.className = "chip" + (d === optDays ? " on" : ""); b.textContent = d + " dias"; b.onclick = () => { optDays = d; renderDays(); if (optResults.length) showOpt(optAsset); }; box.appendChild(b); }
+  for (const d of PERIODS) { const b = document.createElement("button"); b.className = "chip" + (d === optDays ? " on" : ""); b.textContent = d + " dias"; b.onclick = () => { optDays = d; renderDays(); if (optResults.length) showOpt(); }; box.appendChild(b); }
 }
 renderDays();
 let optAsset = null;
@@ -1235,81 +1241,69 @@ function renderOptTfs() {
   document.getElementById("optTfNote").textContent = "Mais usados no day trade: 2, 5 e 15 min (o de 1 hora serve para confirmar a tendência)." + (a.crypto ? "" : " Na B3 os dados grátis chegam com 15 min de atraso: em 30 min ou mais esse atraso atrapalha bem menos.");
 }
 function fmtRes(v, a) { return v == null ? "—" : (v >= 0 ? "+" : "") + (a.futures ? Math.round(v).toLocaleString("pt-BR") + " pts" : v.toFixed(1) + "%"); }
+const ALL = "__all";
+function optCoins() { return shownAssets().filter(a => a.crypto); }
 document.getElementById("optRun").onclick = async () => {
-  const a = assets().find(x => x.id === document.getElementById("optAsset").value);
+  const sel = document.getElementById("optAsset").value, all = sel === ALL;
+  const list = all ? optCoins() : [assets().find(x => x.id === sel)];
   const tfs = TFS.filter(t => optTfSel.includes(t.id));
   if (!tfs.length) { optOut.innerHTML = '<p class="down">Marque pelo menos um tempo gráfico.</p>'; return; }
-  optResults = []; optAsset = a; const btn = document.getElementById("optRun"); btn.disabled = true;
+  optResults = []; optAsset = all ? null : list[0]; optAll = all; const btn = document.getElementById("optRun"); btn.disabled = true;
+  const cache = {}, maxD = Math.max(...PERIODS);
+  const getRaw = (a, tf, hist) => { const k = a.id + "|" + (a.crypto ? tf.b : tf.y) + "|" + hist; return cache[k] || (cache[k] = loadRaw(a, tf, hist)); };
+  const load = async (a, tf, hist) => { const r = await getRaw(a, tf, hist), base = IV_MIN[a.crypto ? tf.b : tf.y];
+    return base !== tf.min ? aggregate(r.candles, tf.min, a.crypto) : r.candles; };
   try {
-    for (const tf of tfs) {
-      optOut.innerHTML = '<p class="mut">Baixando ' + Math.max(...PERIODS) + ' dias de ' + tf.label + '…</p>';
-      let h; try { h = await loadCandles(a, tf, Math.max(...PERIODS) + (tf.id === "1d" ? 120 : 5)); } catch (e) { continue; }
-      const cs = h.candles; if (cs.length < 60) continue;
-      optOut.innerHTML = '<p class="mut">Testando ' + STRATS.length + ' estratégias em ' + tf.label + '…</p>';
-      await new Promise(r => setTimeout(r, 30));
-      const o = btOpts(a, tf), lastT = cs[cs.length - 1].t; o.P = exitPrep(cs);
-      // início de cada período (os indicadores usam os candles de antes para aquecer)
-      const starts = {}, have = {};
-      for (const d of PERIODS) { const t0 = lastT - d * 86400; const i = cs.findIndex(c => c.t >= t0); starts[d] = Math.max(1, i); have[d] = cs[0].t <= t0 + 86400; }
-      const bh = {}; for (const d of PERIODS) if (have[d]) bh[d] = a.futures ? cs[cs.length - 1].c - cs[starts[d]].c : (cs[cs.length - 1].c / cs[starts[d]].c - 1) * 100;
-      for (const st of STRATS) {
-        if (st.intradayOnly && !tf.intraday) continue;
-        const dd = stratDirs(cs, st);
-        for (const ex of [...new Set([o.exit, "atr", "atr2"])]) { const oo = Object.assign({}, o, { exit: ex }), per = {};
-          for (const d of PERIODS) per[d] = have[d] ? runBT(cs, dd, starts[d], cs.length, oo) : null;
-          optResults.push({ st, tf, per, bh, ex }); }
+    let done = 0;
+    const work = async a => {
+      for (const tf of tfs) {
+        const baseMin = IV_MIN[a.crypto ? tf.b : tf.y], hist = all && a.crypto ? Math.max(1, Math.min(maxD, Math.floor(4000 * baseMin / 1440) - 15)) : maxD + (tf.id === "1d" ? 120 : 5);
+        let cs; try { cs = await load(a, tf, hist); } catch (e) { continue; }
+        if (!cs || cs.length < 260) continue;
+        const o = btOpts(a, tf), lastT = cs[cs.length - 1].t, warm = 200; o.P = exitPrep(cs);
+        const starts = {}, days = {};
+        for (const d of PERIODS) { const t0 = lastT - d * 86400; let i = cs.findIndex(c => c.t >= t0); if (i < 0) i = cs.length - 1; starts[d] = Math.max(warm, i); days[d] = Math.round((lastT - cs[starts[d]].t) / 86400); }
+        for (const st of STRATS) {
+          if (st.intradayOnly && (!tf.intraday || a.crypto)) continue;
+          const dd = stratDirs(cs, st);
+          for (const ex of [...new Set([o.exit, "atr", "atr2"])]) { const oo = Object.assign({}, o, { exit: ex }), per = {};
+            for (const d of PERIODS) per[d] = days[d] >= 1 ? runBT(cs, dd, starts[d], cs.length, oo) : null;
+            optResults.push({ a, st, tf, ex, per, days }); }
+        }
+        await new Promise(r => setTimeout(r, 0));
       }
-    }
-    showOpt(a);
+      done++; optOut.innerHTML = '<p class="mut">Analisando ' + done + ' de ' + list.length + (all ? ' criptos' : '') + '… <b>' + parts(a).t + '</b></p>';
+    };
+    const q = list.slice(), workers = []; for (let k = 0; k < (all ? 4 : 1); k++) workers.push((async () => { while (q.length) await work(q.shift()); })());
+    await Promise.all(workers);
+    showOpt();
   } finally { btn.disabled = false; }
 };
-function showOpt(a) {
+let optAll = false;
+function showOpt() {
   if (!optResults.length) { optOut.innerHTML = '<p class="down">Não consegui baixar o histórico. Verifique a internet.</p>'; return; }
-  const D = optDays, minOps = D <= 30 ? 3 : 4;
-  const valid = optResults.filter(r => r.per[D] && r.per[D].n >= minOps);
-  const consist = r => PERIODS.every(d => !r.per[d] || r.per[d].sum > 0) && PERIODS.some(d => r.per[d]);
+  const D = optDays, minOps = 5, byHit = optSort === "hit";
   const hit = r => Math.round(r.per[D].wins / r.per[D].n * 100);
-  const byHit = optSort === "hit";
-  const ranked = byHit ? valid.filter(r => r.per[D].n >= 6).sort((x, y) => hit(y) - hit(x) || y.per[D].sum - x.per[D].sum) : valid.sort((x, y) => y.per[D].sum - x.per[D].sum);
-  const best = ranked.find(r => r.per[D].sum > 0);
-  const n70 = valid.filter(r => r.per[D].n >= 6 && hit(r) >= 70 && r.per[D].sum > 0).length;
-  const bestHit = ranked.filter(r => r.per[D].n >= 5).sort((x, y) => hit(y) - hit(x))[0];
-  const periodsRow = r => PERIODS.map(d => '<span style="flex:1;text-align:center">' + d + 'd<br><b class="' + (!r.per[d] ? "mut" : r.per[d].sum >= 0 ? "up" : "down") + '">' + (r.per[d] ? fmtRes(r.per[d].sum, a) : "—") + '</b></span>').join("");
-  let h = '<div class="tf" style="padding:0 0 8px"><button class="chip' + (byHit ? "" : " on") + '" data-sort="sum">💰 Mais lucro</button><button class="chip' + (byHit ? " on" : "") + '" data-sort="hit">🎯 Mais acerto</button></div>' +
-    '<p class="mut" style="font-size:12px;margin:0 0 8px">' + (n70 ? '<b class="up">' + n70 + ' combinações</b> acertaram 70% ou mais e deram lucro (com pelo menos 6 operações).' : 'Nenhuma combinação acertou 70% com lucro neste período.') + ' Cada análise foi testada com 3 saídas: a sua, alvo curto e alvo longo.</p>';
-  if (!ranked.length) h += '<p class="mut">Poucas operações nos últimos ' + D + ' dias para comparar. Tente um período maior.</p>';
-  if (best) {
-    const r = best;
-    h += '<div class="card" style="border-color:#26c281"><h3>Nos últimos ' + D + ' dias em ' + a.name + '</h3><div class="v up">' + r.st.name + '</div><p>no gráfico de <b>' + r.tf.label + '</b> · saída: <b>' + EXIT_SHORT[r.ex] + '</b> · ' + r.st.grp + (consist(r) ? ' · <b class="up">✔ consistente</b>' : '') + '</p>' +
-      '<div class="row"><span>Resultado em ' + D + ' dias</span><b class="up">' + fmtRes(r.per[D].sum, a) + '</b></div>' +
-      '<div class="row"><span>Acerto</span><b>' + hit(r) + '% (' + r.per[D].wins + ' de ' + r.per[D].n + ' operações)</b></div>' +
-      '<div class="row"><span>Comprar e segurar em ' + D + ' dias</span><span>' + fmtRes(r.bh[D], a) + '</span></div>' +
-      '<div class="row" style="margin-top:6px">' + periodsRow(r) + '</div>' +
-      (consist(r) ? '' : '<p>Atenção: não foi bem em todos os períodos. Pode ter sido sorte do momento.</p>') +
-      '<button class="primary" data-use="1">Usar esta estratégia</button></div>';
-  } else if (ranked.length) {
-    h += '<div class="card" style="border-color:#ff5468"><h3>Últimos ' + D + ' dias</h3><div class="v down">Nenhuma estratégia deu lucro</div><p>Em ' + a.name + ', nenhuma análise ganhou dinheiro nos últimos ' + D + ' dias depois das taxas. O mais seguro é <b>não operar</b> esse ativo com sinais agora.</p></div>';
-  }
-  const cons = ranked.filter(r => consist(r) && r !== best)[0];
-  if (cons) h += '<p class="mut" style="font-size:13px">Mais firme nos três períodos: <b>' + cons.st.name + '</b> em ' + cons.tf.label + '.</p>';
-  if (bestHit) h += '<p class="mut" style="font-size:13px">Maior acerto em ' + D + ' dias: <b>' + bestHit.st.name + '</b> em ' + bestHit.tf.label + ' com ' + hit(bestHit) + '% (resultado ' + fmtRes(bestHit.per[D].sum, a) + '). Acertar muito nem sempre dá lucro.</p>';
-  const missing = [...new Set(optResults.filter(r => !r.per[D]).map(r => r.tf.label))];
-  if (missing.length) h += '<p class="mut" style="font-size:12px">Sem histórico de ' + D + ' dias em: ' + missing.join(", ") + ' (a fonte grátis da B3 guarda só 60 dias nos tempos de 2 a 40 min e 7 dias no de 1 e 3 min).</p>';
-  h += '<h3 style="font-size:13px;color:#8a94a6;margin:16px 0 6px">TODAS AS ANÁLISES · ÚLTIMOS ' + D + ' DIAS</h3>';
-  ranked.slice(0, 40).forEach((r, i) => {
-    h += '<div class="card" style="margin-bottom:6px;padding:10px"><div class="row"><b style="font-size:14px">' + (i + 1) + '. ' + r.st.name + (consist(r) ? ' <span class="up">✔</span>' : '') + (r.per[D].n >= 6 && hit(r) >= 70 && r.per[D].sum > 0 ? ' <span class="tag" style="background:#1f5a3f;color:#9ff0c8">🎯 ' + hit(r) + '%</span>' : '') + '</b></div>' +
-      '<div class="row" style="font-size:12px"><span class="mut">' + r.tf.label + ' · ' + EXIT_SHORT[r.ex] + ' · acerto ' + hit(r) + '% · ' + r.per[D].n + ' operações</span></div>' +
-      '<div class="row" style="font-size:12px">' + periodsRow(r) + '</div>' +
-      '<div style="text-align:right"><button class="chip" style="height:28px" data-pick="' + optResults.indexOf(r) + '">Usar</button></div></div>';
+  const valid = optResults.filter(r => r.per[D] && r.per[D].n >= minOps);
+  const consist = r => PERIODS.every(d => !r.per[d] || r.per[d].sum > 0);
+  const cmp = (x, y) => byHit ? (hit(y) - hit(x) || y.per[D].sum - x.per[D].sum) : (y.per[D].sum - x.per[D].sum);
+  let rows = valid.filter(r => r.per[D].sum > 0).sort(cmp);
+  if (optAll) { const seen = new Set(); rows = rows.filter(r => !seen.has(r.a.id) && seen.add(r.a.id)); } else rows = rows.slice(0, 20);
+  const n70 = valid.filter(r => hit(r) >= 70 && r.per[D].sum > 0).length;
+  let h = '<div class="tf" style="padding:0 0 6px"><button class="chip' + (byHit ? "" : " on") + '" data-sort="sum">💰 Mais lucro</button><button class="chip' + (byHit ? " on" : "") + '" data-sort="hit">🎯 Mais acerto</button></div>' +
+    '<p class="mut" style="font-size:12px;margin:0 0 8px">' + (optAll ? 'Melhor combinação de cada cripto' : 'Melhores combinações em ' + parts(optAsset).t) + ' · últimos ' + D + ' dias · <b class="up">' + n70 + '</b> com 🎯 70%+ e lucro. Toque numa linha para usar.</p>';
+  if (!rows.length) h += '<p class="down">Nenhuma combinação deu lucro nos últimos ' + D + ' dias' + (optAll ? '' : ' neste ativo') + '. O mais seguro é não operar.</p>';
+  rows.forEach((r, i) => {
+    const p = r.per[D], hp = hit(r), part = r.days[D] < D - 1;
+    h += '<div class="orow" data-k="' + optResults.indexOf(r) + '">' + logo(r.a) +
+      '<div class="tx"><div><b>' + parts(r.a).t + '</b> <span class="tag"' + (hp >= 70 ? ' style="background:#1f5a3f;color:#9ff0c8"' : '') + '>' + (hp >= 70 ? '🎯 ' : '') + hp + '%</span>' + (consist(r) ? ' <span class="up" style="font-size:12px">✔</span>' : '') + '</div>' +
+      '<small>' + r.st.name + '</small><small>' + r.tf.label + ' · ' + EXIT_SHORT[r.ex] + ' · ' + p.n + ' op.' + (part ? ' · ' + r.days[D] + 'd' : '') + '</small></div>' +
+      '<div class="rt"><b class="up">+' + (r.a.futures ? Math.round(p.sum) + ' pts' : p.sum.toFixed(1) + '%') + '</b><small>' + p.wins + '✓ ' + (p.n - p.wins) + '✗</small></div></div>';
   });
+  if (rows.length) h += '<p class="mut" style="font-size:11px;margin:8px 0 0">✔ = deu lucro nos períodos de 30, 60 e 90 dias. "Xd" = o histórico grátis só cobria X dias nesse tempo gráfico. O passado não garante o futuro.</p>';
   optOut.innerHTML = h;
-  const use = r => {
-    cfg.strat = cfg.strat || {}; cfg.strat[a.id + "|" + r.tf.id] = r.st.id; cfg.exitBy = cfg.exitBy || {}; cfg.exitBy[a.id + "|" + r.tf.id] = r.ex; cfg.asset = a.id; cfg.tf = r.tf.id;
-    store.set("cfg", cfg); optSheet.classList.remove("open"); stopStream(); data = null; buildUi(); draw(); refresh(); if (cfg.watch.length) syncWatch();
-  };
-  optOut.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { optSort = b.dataset.sort; store.set("optSort", optSort); showOpt(a); });
-  optOut.querySelectorAll("[data-use]").forEach(b => b.onclick = () => use(best));
-  optOut.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => use(optResults[+b.dataset.pick]));
+  optOut.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { optSort = b.dataset.sort; store.set("optSort", optSort); showOpt(); });
+  optOut.querySelectorAll(".orow").forEach(el => el.onclick = () => { const r = optResults[+el.dataset.k]; optSheet.classList.remove("open"); openFrom(r.a.id, r.tf.id, r.st.id, r.ex); });
 }
 
 // ================= TEMPO REAL =================
