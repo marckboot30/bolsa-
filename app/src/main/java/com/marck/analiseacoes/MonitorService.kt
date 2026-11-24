@@ -100,25 +100,58 @@ class MonitorService : Service() {
         return body
     }
 
-    private fun ivSec(tf: String) = when (tf) { "1m" -> 60L; "5m" -> 300L; "15m" -> 900L; "60m" -> 3600L; else -> 86400L }
+    /** tempo escolhido -> (minutos, intervalo do Yahoo, intervalo da Binance, período do Yahoo) */
+    private fun tfInfo(tf: String): Array<Any> = when (tf) {
+        "1m" -> arrayOf(1, "1m", "1m", "5d"); "2m" -> arrayOf(2, "2m", "1m", "5d"); "3m" -> arrayOf(3, "1m", "3m", "5d")
+        "5m" -> arrayOf(5, "5m", "5m", "5d"); "10m" -> arrayOf(10, "5m", "5m", "10d"); "15m" -> arrayOf(15, "15m", "15m", "1mo")
+        "20m" -> arrayOf(20, "5m", "5m", "1mo"); "30m" -> arrayOf(30, "30m", "30m", "1mo"); "40m" -> arrayOf(40, "5m", "5m", "1mo")
+        "60m" -> arrayOf(60, "60m", "1h", "3mo"); else -> arrayOf(1440, "1d", "1d", "1y")
+    }
+    private fun baseMin(iv: String) = when (iv) { "1m" -> 1; "2m" -> 2; "3m" -> 3; "5m" -> 5; "15m" -> 15; "30m" -> 30; "60m", "1h" -> 60; else -> 1440 }
+
+    private fun bucket(t: Long, min: Int, crypto: Boolean): Long {
+        val p = min * 60L
+        if (crypto) return t / p * p
+        val loc = t - 10800; val day0 = Math.floorDiv(loc, 86400L) * 86400L; val s0 = day0 + 9 * 3600
+        return s0 + Math.floorDiv(loc - s0, p) * p + 10800
+    }
 
     private fun candles(w: Watch): List<Candle> {
-        val out = ArrayList<Candle>()
-        if (w.src == "binance") {
-            val iv = if (w.tf == "60m") "1h" else w.tf
-            val a = JSONArray(get("https://api.binance.com/api/v3/klines?symbol=${w.id}&interval=$iv&limit=300"))
-            for (i in 0 until a.length()) { val k = a.getJSONArray(i); out.add(Candle(k.getLong(0) / 1000, k.getString(1).toDouble(), k.getString(2).toDouble(), k.getString(3).toDouble(), k.getString(4).toDouble())) }
+        val info = tfInfo(w.tf); val min = info[0] as Int; val yIv = info[1] as String; val bIv = info[2] as String; val yRange = info[3] as String
+        val crypto = w.src == "binance"; val bMin = baseMin(if (crypto) bIv else yIv)
+        var raw = ArrayList<Candle>()
+        if (crypto) {
+            val pages = maxOf(1, minOf(5, Math.ceil(300.0 * min / bMin / 1000).toInt()))
+            var end: Long? = null
+            for (pg in 0 until pages) {
+                val a = JSONArray(get("https://api.binance.com/api/v3/klines?symbol=${w.id}&interval=$bIv&limit=1000" + (end?.let { "&endTime=$it" } ?: "")))
+                if (a.length() == 0) break
+                val part = ArrayList<Candle>()
+                for (i in 0 until a.length()) { val k = a.getJSONArray(i); part.add(Candle(k.getLong(0) / 1000, k.getString(1).toDouble(), k.getString(2).toDouble(), k.getString(3).toDouble(), k.getString(4).toDouble())) }
+                part.addAll(raw); raw = part; end = a.getJSONArray(0).getLong(0) - 1
+                if (a.length() < 1000) break
+            }
         } else {
-            val range = when (w.tf) { "1m", "5m" -> "5d"; "15m" -> "1mo"; "60m" -> "3mo"; else -> "1y" }
-            val r = JSONObject(get("https://query1.finance.yahoo.com/v8/finance/chart/" + java.net.URLEncoder.encode(w.id, "UTF-8") + "?interval=${w.tf}&range=$range&includePrePost=false"))
+            val r = JSONObject(get("https://query1.finance.yahoo.com/v8/finance/chart/" + java.net.URLEncoder.encode(w.id, "UTF-8") + "?interval=$yIv&range=$yRange&includePrePost=false"))
                 .getJSONObject("chart").getJSONArray("result").getJSONObject(0)
             val ts = r.getJSONArray("timestamp"); val q = r.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0)
             val o = q.getJSONArray("open"); val h = q.getJSONArray("high"); val l = q.getJSONArray("low"); val c = q.getJSONArray("close")
-            for (i in 0 until ts.length()) { if (o.isNull(i) || h.isNull(i) || l.isNull(i) || c.isNull(i)) continue; out.add(Candle(ts.getLong(i), o.getDouble(i), h.getDouble(i), l.getDouble(i), c.getDouble(i))) }
+            for (i in 0 until ts.length()) { if (o.isNull(i) || h.isNull(i) || l.isNull(i) || c.isNull(i)) continue; raw.add(Candle(ts.getLong(i), o.getDouble(i), h.getDouble(i), l.getDouble(i), c.getDouble(i))) }
+        }
+        // junta os candles menores no tempo escolhido
+        val out = ArrayList<Candle>()
+        if (bMin == min) out.addAll(raw) else {
+            var bt = Long.MIN_VALUE; var o = 0.0; var h = 0.0; var l = 0.0; var c = 0.0
+            for (x in raw) {
+                val b = bucket(x.t, min, crypto)
+                if (b != bt) { if (bt != Long.MIN_VALUE) out.add(Candle(bt, o, h, l, c)); bt = b; o = x.o; h = x.h; l = x.l; c = x.c }
+                else { h = maxOf(h, x.h); l = minOf(l, x.l); c = x.c }
+            }
+            if (bt != Long.MIN_VALUE) out.add(Candle(bt, o, h, l, c))
         }
         // só candles já fechados
         val now = System.currentTimeMillis() / 1000
-        return out.filter { it.t + ivSec(w.tf) <= now - 5 }
+        return out.filter { it.t + min * 60L <= now - 5 }
     }
 
     private fun ema(v: List<Double>, n: Int): DoubleArray {
@@ -134,7 +167,7 @@ class MonitorService : Service() {
     private fun check(w: Watch) {
         val cs = candles(w); if (cs.size < w.slow + 3) return
         val k = cs.size - 1; val c = cs[k]
-        val tfName = when (w.tf) { "1m" -> "1 min"; "5m" -> "5 min"; "15m" -> "15 min"; "60m" -> "1 hora"; else -> "diário" }
+        val tfName = when (w.tf) { "60m" -> "1 hora"; "1d" -> "diário"; else -> w.tf.removeSuffix("m") + " min" }
         if (w.cross) {
             val dirs = Strategies.dirs(cs, w.strat) { day(it) }
             val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d") { day(it) }

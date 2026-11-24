@@ -99,7 +99,9 @@
   <label>Ativo para analisar</label><select id="optAsset" class="sel" style="width:100%"></select>
   <label>Período da análise</label>
   <div class="tf" id="optDays" style="padding:0"></div>
-  <div class="sw"><span>Testar todos os tempos gráficos (5 min, 15 min, 1 hora e diário)</span><input type="checkbox" id="optAll" checked></div>
+  <label>Tempos gráficos para comparar (toque para marcar)</label>
+  <div class="tf" id="optTfs" style="padding:0;flex-wrap:wrap"></div>
+  <p class="mut" style="font-size:12px;margin:6px 0 0" id="optTfNote"></p>
   <button class="primary" id="optRun">Analisar</button>
   <div id="optOut" style="margin-top:14px"></div>
 </div></div>
@@ -129,11 +131,21 @@ const DEFAULT_ASSETS = [
   { id: "XRPBRL", name: "XRP · XRP/BRL", crypto: true }, { id: "DOGEBRL", name: "Dogecoin · DOGE/BRL", crypto: true },
   { id: "USDTBRL", name: "Dólar cripto · USDT/BRL", crypto: true },
 ];
+// y/b = intervalo que a fonte entrega (Yahoo/Binance); quando é menor que o tempo escolhido, o app junta os candles
 const TFS = [
-  { id: "1m", label: "1 min", range: "5d", intraday: true }, { id: "5m", label: "5 min", range: "5d", intraday: true },
-  { id: "15m", label: "15 min", range: "1mo", intraday: true }, { id: "60m", label: "1 hora", range: "3mo", intraday: true },
-  { id: "1d", label: "Diário", range: "1y", intraday: false },
+  { id: "1m", label: "1 min", min: 1, y: "1m", b: "1m", range: "5d", intraday: true },
+  { id: "2m", label: "2 min", min: 2, y: "2m", b: "1m", range: "5d", intraday: true },
+  { id: "3m", label: "3 min", min: 3, y: "1m", b: "3m", range: "5d", intraday: true },
+  { id: "5m", label: "5 min", min: 5, y: "5m", b: "5m", range: "5d", intraday: true },
+  { id: "10m", label: "10 min", min: 10, y: "5m", b: "5m", range: "10d", intraday: true },
+  { id: "15m", label: "15 min", min: 15, y: "15m", b: "15m", range: "1mo", intraday: true },
+  { id: "20m", label: "20 min", min: 20, y: "5m", b: "5m", range: "1mo", intraday: true },
+  { id: "30m", label: "30 min", min: 30, y: "30m", b: "30m", range: "1mo", intraday: true },
+  { id: "40m", label: "40 min", min: 40, y: "5m", b: "5m", range: "1mo", intraday: true },
+  { id: "60m", label: "1 hora", min: 60, y: "60m", b: "1h", range: "3mo", intraday: true },
+  { id: "1d", label: "Diário", min: 1440, y: "1d", b: "1d", range: "1y", intraday: false },
 ];
+const IV_MIN = { "1m": 1, "2m": 2, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "60m": 60, "1h": 60, "1d": 1440 };
 const store = {
   get(k, d) { try { const v = localStorage.getItem("aa." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem("aa." + k, JSON.stringify(v)); } catch (e) {} },
@@ -156,16 +168,30 @@ function httpGet(url) {
   if (window.MOCK) return Promise.resolve(window.MOCK(url));
   return fetch(url).then(r => r.text());
 }
-const HIST_RANGE = { "1m": "7d", "5m": "60d", "15m": "60d", "60m": "2y", "1d": "5y" };
-const BIN_IV = { "1m": "1m", "5m": "5m", "15m": "15m", "60m": "1h", "1d": "1d" };
+const HIST_RANGE = { "1m": "7d", "2m": "60d", "5m": "60d", "15m": "60d", "30m": "60d", "60m": "2y", "1d": "5y" };
 function brt(sec) { const d = new Date((sec - 10800) * 1000).toISOString(); return { day: d.slice(0, 10), hm: d.slice(11, 16), date: d.slice(8, 10) + "/" + d.slice(5, 7) }; }
-const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "60m": 3600, "1d": 86400 };
+// junta candles menores no tempo escolhido (B3 conta a partir das 9h)
+function bucketOf(t, min, crypto) { const p = min * 60; return crypto ? Math.floor(t / p) * p : (() => { const loc = t - 10800, day0 = Math.floor(loc / 86400) * 86400, s0 = day0 + 9 * 3600; return s0 + Math.floor((loc - s0) / p) * p + 10800; })(); }
+function aggregate(cs, min, crypto) {
+  const out = [];
+  for (const c of cs) {
+    const bt = bucketOf(c.t, min, crypto), last = out[out.length - 1];
+    if (last && last.t === bt) { last.h = Math.max(last.h, c.h); last.l = Math.min(last.l, c.l); last.c = c.c; last.v += c.v; }
+    else out.push(Object.assign({ t: bt, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v }, brt(bt)));
+  }
+  return out;
+}
 async function loadCandles(asset, tf, hist) {
+  const r = await loadRaw(asset, tf, hist), baseMin = IV_MIN[asset.crypto ? tf.b : tf.y];
+  if (baseMin !== tf.min) r.candles = aggregate(r.candles, tf.min, asset.crypto);
+  return r;
+}
+async function loadRaw(asset, tf, hist) {
   if (asset.crypto) {
-    let arr = [], end = null;
-    const pages = hist ? Math.min(30, Math.ceil(((typeof hist === "number" ? hist : 30) + 15) * 86400 / IV_SEC[tf.id] / 1000)) : 1;
+    let arr = [], end = null; const baseMin = IV_MIN[tf.b];
+    const pages = hist ? Math.min(30, Math.ceil(((typeof hist === "number" ? hist : 30) + 15) * 1440 / baseMin / 1000)) : Math.min(5, Math.ceil(400 * tf.min / baseMin / 1000));
     for (let page = 0; page < pages; page++) {
-      const part = JSON.parse(await httpGet("https://api.binance.com/api/v3/klines?symbol=" + asset.id + "&interval=" + BIN_IV[tf.id] + "&limit=" + (hist ? 1000 : 500) + (end ? "&endTime=" + end : "")));
+      const part = JSON.parse(await httpGet("https://api.binance.com/api/v3/klines?symbol=" + asset.id + "&interval=" + tf.b + "&limit=" + (hist || pages > 1 ? 1000 : 500) + (end ? "&endTime=" + end : "")));
       if (!Array.isArray(part)) throw new Error((part && part.msg) || "par não encontrado na Binance");
       if (!part.length) break;
       arr = part.concat(arr); end = part[0][0] - 1;
@@ -174,7 +200,7 @@ async function loadCandles(asset, tf, hist) {
     const out = arr.map(k => Object.assign({ t: Math.floor(k[0] / 1000), o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] }, brt(Math.floor(k[0] / 1000))));
     return { candles: out, prevClose: out.length > 1 ? out[out.length - 2].c : null, price: out.length ? out[out.length - 1].c : null };
   }
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(asset.id) + "?interval=" + tf.id + "&range=" + (hist ? HIST_RANGE[tf.id] : tf.range) + "&includePrePost=false";
+  const url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(asset.id) + "?interval=" + tf.y + "&range=" + (hist ? HIST_RANGE[tf.y] : tf.range) + "&includePrePost=false";
   const j = JSON.parse(await httpGet(url));
   const r = j.chart && j.chart.result && j.chart.result[0];
   if (!r) throw new Error((j.chart && j.chart.error && j.chart.error.description) || "sem dados");
@@ -620,7 +646,7 @@ document.querySelector("#opt p").textContent = document.querySelector("#opt p").
 document.getElementById("optOpen").onclick = () => {
   const sel = document.getElementById("optAsset"); sel.innerHTML = "";
   for (const a of assets()) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.name; sel.appendChild(o); }
-  sel.value = cfg.asset; optOut.innerHTML = ""; optSheet.classList.add("open");
+  sel.value = cfg.asset; sel.onchange = renderOptTfs; renderOptTfs(); optOut.innerHTML = ""; optSheet.classList.add("open");
 };
 optSheet.addEventListener("click", e => { if (e.target === optSheet) optSheet.classList.remove("open"); });
 let optResults = [], optDays = 30;
@@ -631,10 +657,19 @@ function renderDays() {
 }
 renderDays();
 let optAsset = null;
+let optTfSel = store.get("optTfs", ["5m", "15m", "30m", "60m"]);
+function renderOptTfs() {
+  const box = document.getElementById("optTfs"); box.innerHTML = "";
+  for (const t of TFS) { const b = document.createElement("button"); b.className = "chip" + (optTfSel.includes(t.id) ? " on" : ""); b.textContent = t.label; b.style.marginBottom = "6px";
+    b.onclick = () => { optTfSel = optTfSel.includes(t.id) ? optTfSel.filter(x => x !== t.id) : optTfSel.concat(t.id); store.set("optTfs", optTfSel); renderOptTfs(); }; box.appendChild(b); }
+  const a = assets().find(x => x.id === (document.getElementById("optAsset").value || cfg.asset)) || curAsset();
+  document.getElementById("optTfNote").textContent = "Mais usados no day trade: 2, 5 e 15 min (o de 1 hora serve para confirmar a tendência)." + (a.crypto ? "" : " Na B3 os dados grátis chegam com 15 min de atraso: em 30 min ou mais esse atraso atrapalha bem menos.");
+}
 function fmtRes(v, a) { return v == null ? "—" : (v >= 0 ? "+" : "") + (a.futures ? Math.round(v).toLocaleString("pt-BR") + " pts" : v.toFixed(1) + "%"); }
 document.getElementById("optRun").onclick = async () => {
-  const a = assets().find(x => x.id === document.getElementById("optAsset").value), all = document.getElementById("optAll").checked;
-  const tfs = all ? TFS.filter(t => ["5m", "15m", "60m", "1d"].includes(t.id)) : [curTf()];
+  const a = assets().find(x => x.id === document.getElementById("optAsset").value);
+  const tfs = TFS.filter(t => optTfSel.includes(t.id));
+  if (!tfs.length) { optOut.innerHTML = '<p class="down">Marque pelo menos um tempo gráfico.</p>'; return; }
   optResults = []; optAsset = a; const btn = document.getElementById("optRun"); btn.disabled = true;
   try {
     for (const tf of tfs) {
@@ -686,7 +721,7 @@ function showOpt(a) {
   if (cons) h += '<p class="mut" style="font-size:13px">Mais firme nos três períodos: <b>' + cons.st.name + '</b> em ' + cons.tf.label + '.</p>';
   if (bestHit) h += '<p class="mut" style="font-size:13px">Maior acerto em ' + D + ' dias: <b>' + bestHit.st.name + '</b> em ' + bestHit.tf.label + ' com ' + hit(bestHit) + '% (resultado ' + fmtRes(bestHit.per[D].sum, a) + '). Acertar muito nem sempre dá lucro.</p>';
   const missing = [...new Set(optResults.filter(r => !r.per[D]).map(r => r.tf.label))];
-  if (missing.length) h += '<p class="mut" style="font-size:12px">Sem histórico de ' + D + ' dias em: ' + missing.join(", ") + ' (a fonte grátis da B3 guarda só 60 dias no 5 e 15 min).</p>';
+  if (missing.length) h += '<p class="mut" style="font-size:12px">Sem histórico de ' + D + ' dias em: ' + missing.join(", ") + ' (a fonte grátis da B3 guarda só 60 dias nos tempos de 2 a 40 min e 7 dias no de 1 e 3 min).</p>';
   h += '<h3 style="font-size:13px;color:#8a94a6;margin:16px 0 6px">TODAS AS ANÁLISES · ÚLTIMOS ' + D + ' DIAS</h3>';
   ranked.slice(0, 40).forEach((r, i) => {
     h += '<div class="card" style="margin-bottom:6px;padding:10px"><div class="row"><b style="font-size:14px">' + (i + 1) + '. ' + r.st.name + (consist(r) ? ' <span class="up">✔</span>' : '') + '</b></div>' +
@@ -719,18 +754,25 @@ function startStream() {
   if (wsKey === key && ws) return;
   stopStream(); if (!a.crypto) return;
   wsKey = key; streamOk = false;
-  try { ws = new WebSocket("wss://stream.binance.com:9443/ws/" + a.id.toLowerCase() + "@kline_" + BIN_IV[tf.id]); } catch (e) { return; }
+  try { ws = new WebSocket("wss://stream.binance.com:9443/ws/" + a.id.toLowerCase() + "@kline_" + tf.b); } catch (e) { return; }
   ws.onopen = () => { streamOk = true; };
   ws.onmessage = ev => {
     if (!data || wsKey !== curAsset().id + "|" + curTf().id) return;
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
     const k = m.k; if (!k) return;
-    const t = Math.floor(k.t / 1000), cs = data.candles, last = cs[cs.length - 1];
-    const c = Object.assign({ t, o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v }, brt(t));
-    if (last && last.t === t) cs[cs.length - 1] = c; else if (!last || t > last.t) { cs.push(c); if (cs.length > 600) cs.shift(); }
-    data.forming = !k.x;
+    const tfc = curTf(), agg = IV_MIN[tfc.b] !== tfc.min;
+    const kt = Math.floor(k.t / 1000), t = agg ? bucketOf(kt, tfc.min, true) : kt, cs = data.candles, last = cs[cs.length - 1];
+    if (agg && last && last.t === t) { // atualiza o candle juntado
+      if (data.lastBase !== kt) { data.baseH = last.h; data.baseL = last.l; data.lastBase = kt; data.baseV = last.v; }
+      last.h = Math.max(data.baseH, +k.h); last.l = Math.min(data.baseL, +k.l); last.c = +k.c;
+    } else {
+      const c = Object.assign({ t, o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v }, brt(t));
+      if (last && last.t === t) cs[cs.length - 1] = c; else if (!last || t > last.t) { cs.push(c); if (cs.length > 600) cs.shift(); if (agg) { data.lastBase = kt; data.baseH = -Infinity; data.baseL = Infinity; } }
+    }
+    const closesNow = k.x && (!agg || (kt + IV_MIN[tfc.b] * 60) >= t + tfc.min * 60);
+    data.forming = !closesNow;
     streamOk = true; scheduleRender();
-    if (k.x) setTimeout(() => { an = analyze(data.candles, cfg.fast, cfg.slow, curTf().intraday, false); checkAlerts(); }, 250);
+    if (closesNow) setTimeout(() => { an = analyze(data.candles, cfg.fast, cfg.slow, curTf().intraday, false); checkAlerts(); }, 250);
   };
   ws.onclose = () => { const was = wsKey; ws = null; streamOk = false; setTimeout(() => { if (wsKey === was && !document.hidden) { wsKey = null; startStream(); } }, 3000); };
 }
