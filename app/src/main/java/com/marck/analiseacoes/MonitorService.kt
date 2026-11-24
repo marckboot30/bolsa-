@@ -25,7 +25,7 @@ import java.util.TimeZone
 data class Watch(
     val id: String, val tf: String, val name: String, val src: String,
     val fast: Int, val slow: Int, val cross: Boolean, val brk: Boolean, val dec: Int, val b3: Boolean,
-    val strat: JSONObject, val stratName: String,
+    val strat: JSONObject, val stratName: String, val exit: String, val short: Boolean,
 )
 
 object Watches {
@@ -38,7 +38,7 @@ object Watches {
             Watch(o.getString("id"), o.getString("tf"), o.optString("name", o.getString("id")), o.optString("src", "yahoo"),
                 o.optInt("fast", 9), o.optInt("slow", 21), o.optBoolean("cross", true), o.optBoolean("brk", true), o.optInt("dec", 2), o.optBoolean("b3", true),
                 o.optJSONObject("strat") ?: JSONObject().put("type", "ma").put("f", o.optInt("fast", 9)).put("s", o.optInt("slow", 21)),
-                o.optString("stratName", "Cruzamento de médias"))
+                o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false))
         }
     }.getOrDefault(emptyList())
 
@@ -135,12 +135,22 @@ class MonitorService : Service() {
         val cs = candles(w); if (cs.size < w.slow + 3) return
         val k = cs.size - 1; val c = cs[k]
         val tfName = when (w.tf) { "1m" -> "1 min"; "5m" -> "5 min"; "15m" -> "15 min"; "60m" -> "1 hora"; else -> "diário" }
-        val sameDay = day(cs[k - 1].t) == day(c.t)
-        if (w.cross && (!w.b3 || sameDay || w.tf == "1d")) {
-            val dir = Strategies.dirs(cs, w.strat) { day(it) }[k]
-            if (dir != 0) send("${w.id}|${w.tf}|x|${c.t}",
-                (if (dir > 0) "🟢 COMPRA" else "🔴 VENDA") + " · ${w.name} ($tfName)",
-                "${w.stratName}. Preço: ${fmt(c.c, w)}")
+        if (w.cross) {
+            val dirs = Strategies.dirs(cs, w.strat) { day(it) }
+            val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d") { day(it) }
+            for (e in evs) {
+                if (e.i != k) continue
+                if (e.entry) send("${w.id}|${w.tf}|in|${c.t}",
+                    (if (e.dir > 0) "🟢 ENTRADA DE COMPRA" else "🔴 ENTRADA DE VENDA") + " · ${w.name} ($tfName)",
+                    "${w.stratName}. Preço: ${fmt(e.price, w)}. Vou avisar quando for hora de sair.")
+                else {
+                    val r = if (w.dec == 0) (e.price - e.entryPrice) * e.dir else (e.price - e.entryPrice) / e.entryPrice * e.dir * 100
+                    val rs = (if (r >= 0) "+" else "") + if (w.dec == 0) "${Math.round(r)} pts" else String.format(Locale("pt", "BR"), "%.2f%%", r)
+                    send("${w.id}|${w.tf}|out|${c.t}",
+                        "🏁 HORA DE SAIR da sua ${if (e.dir > 0) "compra" else "venda"} · ${w.name}",
+                        "Motivo: ${e.why}. Resultado: $rs (entrou a ${fmt(e.entryPrice, w)}, agora ${fmt(e.price, w)}). Aguarde o próximo sinal.")
+                }
+            }
         }
         if (w.brk && w.tf != "1d") {
             var hi = Double.NEGATIVE_INFINITY; var lo = Double.POSITIVE_INFINITY

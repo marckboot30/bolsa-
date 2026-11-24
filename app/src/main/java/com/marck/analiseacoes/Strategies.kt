@@ -26,7 +26,7 @@ object Strategies {
     }
 
     /** Padrão do candle i: "EA", "EB", "M", "EC" ou "". */
-    private fun pattern(cs: List<Candle>, i: Int): String {
+    fun pattern(cs: List<Candle>, i: Int): String {
         val c = cs[i]; val p = if (i > 0) cs[i - 1] else null
         val body = Math.abs(c.c - c.o); val range = max(c.h - c.l, 1e-9); val up = c.h - max(c.c, c.o); val lo = min(c.c, c.o) - c.l
         var avg = 0.0; var cnt = 0; for (k in max(0, i - 20) until i) { avg += cs[k].h - cs[k].l; cnt++ }; avg = if (cnt > 0) avg / cnt else range
@@ -101,5 +101,55 @@ object Strategies {
             }
         }
         return d
+    }
+
+    // ---------------- saída da operação ----------------
+    class Event(val i: Int, val entry: Boolean, val dir: Int, val price: Double, val entryPrice: Double, val why: String)
+
+    private fun emaPub(v: DoubleArray, n: Int) = ema(v, n)
+
+    private fun exitReason(cs: List<Candle>, i: Int, pos: Int, e9: DoubleArray, pats: Array<String>, top: DoubleArray, bot: DoubleArray, mode: String): String? {
+        val c = cs[i]; val p = pats[i]
+        if (mode == "auto") {
+            if (pos > 0 && p == "EB") return "apareceu engolfo de baixa"
+            if (pos > 0 && p == "EC") return "apareceu estrela cadente"
+            if (pos < 0 && p == "EA") return "apareceu engolfo de alta"
+            if (pos < 0 && p == "M") return "apareceu martelo"
+        }
+        if ((mode == "auto" || mode == "media") && !e9[i].isNaN() && !e9[i - 1].isNaN()) {
+            if (pos > 0 && c.c < e9[i] && cs[i - 1].c >= e9[i - 1]) return "fechou abaixo da média 9"
+            if (pos < 0 && c.c > e9[i] && cs[i - 1].c <= e9[i - 1]) return "fechou acima da média 9"
+        }
+        if (mode == "topo") {
+            if (pos > 0 && !bot[i - 1].isNaN() && c.c < bot[i - 1]) return "perdeu o último fundo"
+            if (pos < 0 && !top[i - 1].isNaN() && c.c > top[i - 1]) return "rompeu o último topo"
+        }
+        return null
+    }
+
+    /** Mesma simulação do app: entra no sinal, sai na virada. Devolve os eventos. */
+    fun simulate(cs: List<Candle>, d: IntArray, mode: String, short: Boolean, daily: Boolean, dayOf: (Long) -> Long): List<Event> {
+        val n = cs.size; val c = DoubleArray(n) { cs[it].c }; val e9 = emaPub(c, 9)
+        val pats = Array(n) { pattern(cs, it) }
+        val top = DoubleArray(n) { Double.NaN }; val bot = DoubleArray(n) { Double.NaN }
+        var t = Double.NaN; var b = Double.NaN; val k = 2
+        for (i in 0 until n) {
+            if (i >= 2 * k) { val j = i - k; var isH = true; var isL = true
+                for (q in j - k..j + k) { if (q == j) continue; if (cs[q].h >= cs[j].h) isH = false; if (cs[q].l <= cs[j].l) isL = false }
+                if (isH) t = cs[j].h; if (isL) b = cs[j].l }
+            top[i] = t; bot[i] = b
+        }
+        val ev = ArrayList<Event>(); var pos = 0; var entry = 0.0; var ei = -1
+        fun close(i: Int, why: String) { ev.add(Event(i, false, pos, cs[i].c, entry, why)); pos = 0 }
+        for (i in 1 until n) {
+            var s = d[i]
+            if (daily && dayOf(cs[i].t) != dayOf(cs[i - 1].t)) s = 0
+            var exitedNow = false
+            if (pos != 0 && s == -pos) close(i, "sinal contrário")
+            else if (pos != 0 && i > ei) { val why = exitReason(cs, i, pos, e9, pats, top, bot, mode); if (why != null) { close(i, why); exitedNow = true } }
+            if (pos == 0 && s != 0 && (s == 1 || short) && !exitedNow) { pos = s; entry = cs[i].c; ei = i; ev.add(Event(i, true, s, cs[i].c, cs[i].c, "")) }
+            if (daily && pos != 0 && i < n - 1 && dayOf(cs[i + 1].t) != dayOf(cs[i].t)) close(i, "fim do pregão")
+        }
+        return ev
     }
 }

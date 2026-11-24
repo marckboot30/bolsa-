@@ -108,7 +108,9 @@
   <label>Média rápida (períodos)</label><input type="number" id="cfgFast" min="2" max="100">
   <label>Média lenta (períodos)</label><input type="number" id="cfgSlow" min="3" max="300">
   <label>Adicionar ação da B3 (ex.: WEGE3) ou cripto da Binance (ex.: ADABRL, PEPEUSDT)</label><input type="text" id="cfgAdd" placeholder="WEGE3 ou ADABRL" autocapitalize="characters">
-  <div class="sw"><span>Avisar no celular quando sair sinal</span><input type="checkbox" id="cfgAlert"></div>
+  <label>Quando sair da operação</label><select id="cfgExit" class="sel" style="width:100%"></select>
+  <div class="sw"><span>Permitir operar vendido em ações e cripto (o mini índice sempre permite)</span><input type="checkbox" id="cfgShort"></div>
+  <div class="sw"><span>Avisar no celular as entradas e saídas</span><input type="checkbox" id="cfgAlert"></div>
   <div class="sw"><span>Avisar quando romper máxima/mínima do dia</span><input type="checkbox" id="cfgBreak"></div>
   <div class="sw"><span>Atualizar sozinho (ao vivo)</span><input type="checkbox" id="cfgAuto"></div>
   <button class="primary" id="cfgSave">Salvar</button>
@@ -265,20 +267,61 @@ function stratDirs(cs, st) {
   return d;
 }
 // teste de uma estratégia num trecho dos dados, já descontando custos
-function runBT(cs, d, from, to, o) {
-  let pos = 0, entry = 0; const res = [];
-  const close = px => { res.push(o.pts ? (px - entry) * pos - 2 * o.feePts : ((px - entry) / entry * pos - 2 * o.fee) * 100); pos = 0; };
+// ---------- saída da operação ----------
+const EXITS = {
+  auto: "Candle de reversão ou fechar do outro lado da média 9",
+  media: "Fechar do outro lado da média 9",
+  topo: "Romper o último topo/fundo contra você (stop móvel)",
+  sinal: "Só quando sair o sinal contrário",
+};
+function exitPrep(cs) {
+  const n = cs.length, C = cs.map(c => c.c), e9 = ema(C, 9), pats = cs.map((_, i) => candlePattern(cs, i));
+  const top = new Array(n).fill(null), bot = new Array(n).fill(null); let t = null, b = null; const k = 2;
+  for (let i = 0; i < n; i++) {
+    if (i >= 2 * k) { const j = i - k; let isH = true, isL = true;
+      for (let q = j - k; q <= j + k; q++) { if (q === j) continue; if (cs[q].h >= cs[j].h) isH = false; if (cs[q].l <= cs[j].l) isL = false; }
+      if (isH) t = cs[j].h; if (isL) b = cs[j].l; }
+    top[i] = t; bot[i] = b;
+  }
+  return { e9, pats, top, bot };
+}
+function exitReason(cs, i, pos, P, mode) {
+  const c = cs[i], p = P.pats[i];
+  if (mode === "auto" && p) {
+    if (pos > 0 && (p.k === "EB" || p.k === "EC")) return "apareceu " + p.name.toLowerCase();
+    if (pos < 0 && (p.k === "EA" || p.k === "M")) return "apareceu " + p.name.toLowerCase();
+  }
+  if ((mode === "auto" || mode === "media") && P.e9[i] != null && P.e9[i - 1] != null) {
+    if (pos > 0 && c.c < P.e9[i] && cs[i - 1].c >= P.e9[i - 1]) return "fechou abaixo da média 9";
+    if (pos < 0 && c.c > P.e9[i] && cs[i - 1].c <= P.e9[i - 1]) return "fechou acima da média 9";
+  }
+  if (mode === "topo") {
+    if (pos > 0 && P.bot[i - 1] != null && c.c < P.bot[i - 1]) return "perdeu o último fundo";
+    if (pos < 0 && P.top[i - 1] != null && c.c > P.top[i - 1]) return "rompeu o último topo";
+  }
+  return null;
+}
+// simula a operação: entra no sinal, sai na virada; devolve resultados, eventos e a posição aberta
+function simulate(cs, d, from, to, o) {
+  const P = o.P || exitPrep(cs), mode = o.exit || "auto";
+  let pos = 0, entry = 0, ei = -1; const res = [], ev = [];
+  const pnl = px => o.pts ? (px - entry) * pos - 2 * o.feePts : ((px - entry) / entry * pos - 2 * o.fee) * 100;
+  const close = (i, px, why) => { const r = pnl(px); res.push(r); ev.push({ i, type: "exit", dir: pos, price: px, entry, ei, why, r }); pos = 0; };
   for (let i = Math.max(1, from); i < to; i++) {
     const c = cs[i]; let s = d[i];
     if (o.daily && cs[i].day !== cs[i - 1].day) s = 0; // não entra no salto da abertura
-    if (s && s !== pos) { if (pos) close(c.c); if (s === 1 || o.short) { pos = s; entry = c.c; } }
-    if (o.daily && pos && (i === to - 1 || cs[i + 1].day !== c.day)) close(c.c);
+    if (pos && s === -pos) close(i, c.c, "sinal contrário");
+    else if (pos && i > ei) { const why = exitReason(cs, i, pos, P, mode); if (why) close(i, c.c, why); }
+    if (!pos && s && (s === 1 || o.short) && !(ev.length && ev[ev.length - 1].i === i && ev[ev.length - 1].why !== "sinal contrário")) { pos = s; entry = c.c; ei = i; ev.push({ i, type: "entry", dir: s, price: c.c }); }
+    if (o.daily && pos && i < to - 1 && cs[i + 1].day !== c.day) close(i, c.c, "fim do pregão");
   }
-  if (pos) close(cs[to - 1].c);
+  const open = pos ? { dir: pos, entry, ei } : null;
   const wins = res.filter(x => x > 0).length;
-  return { n: res.length, wins, sum: res.reduce((a, b) => a + b, 0) };
+  let run = 0, peak = 0, dd = 0; for (const x of res) { run += x; peak = Math.max(peak, run); dd = Math.min(dd, run - peak); }
+  return { n: res.length + (open ? 1 : 0), closed: res.length, wins: wins + (open && pnl(cs[to - 1].c) > 0 ? 1 : 0), sum: res.reduce((a, b) => a + b, 0) + (open ? pnl(cs[to - 1].c) : 0), dd, ev, open };
 }
-function btOpts(asset, tf) { return { short: !!asset.futures, daily: tf.intraday && !asset.crypto, pts: !!asset.futures, fee: asset.crypto ? .001 : .0008, feePts: 2 }; }
+const runBT = (cs, d, from, to, o) => simulate(cs, d, from, to, o);
+function btOpts(asset, tf) { return { exit: cfg.exit || "auto", short: !!asset.futures || !!cfg.short, daily: tf.intraday && !asset.crypto, pts: !!asset.futures, fee: asset.crypto ? .001 : .0008, feePts: 2 }; }
 
 // ================= ANÁLISE =================
 function sma(arr, n) { const out = new Array(arr.length).fill(null); let s = 0; for (let i = 0; i < arr.length; i++) { s += arr[i]; if (i >= n) s -= arr[i - n]; if (i >= n - 1) out[i] = s / n; } return out; }
@@ -325,7 +368,8 @@ function analyze(cs, fastN, slowN, intraday, forming) {
       hi = Math.max(hi, c.h); lo = Math.min(lo, c.l);
     }
   }
-  return { fast, slow, signals, pats, days, today, prev, breaks, st };
+  const sim = simulate(cs.slice(0, lastClosed), dirs, 1, lastClosed, btOpts(curAsset(), curTf()));
+  return { fast, slow, signals, pats, days, today, prev, breaks, st, sim };
 }
 // teste no passado: segue os sinais; no intraday zera no fim do dia; ações só compram
 function backtest(cs, an, asset, intraday) {
@@ -404,13 +448,29 @@ function draw() {
   // padrões de candle (só os fortes)
   g.font = "bold 9px system-ui"; g.textAlign = "center";
   for (let i = start; i < end; i++) { const p = an.pats[i]; if (!p || !["EA", "EB", "M", "EC"].includes(p.k)) continue; const c = cs[i]; g.fillStyle = p.dir > 0 ? "#7fe3b6" : p.dir < 0 ? "#ff9aa6" : "#c9d1dd"; if (p.dir >= 0) { g.textBaseline = "top"; g.fillText(p.k, X(i), Y(c.l) + 3); } else { g.textBaseline = "bottom"; g.fillText(p.k, X(i), Y(c.h) - 3); } }
-  // sinais
+  // sinais da estratégia (pequenos) e operações (entrada ▲▼, saída ✕, linha ligando)
   for (const s of an.signals) {
     if (s.i < start || s.i >= end) continue; const c = cs[s.i], x = X(s.i);
-    g.fillStyle = s.dir > 0 ? "#26c281" : "#ff5468"; g.beginPath();
-    if (s.dir > 0) { const y = Y(c.l) + 16; g.moveTo(x, y - 8); g.lineTo(x - 6, y + 3); g.lineTo(x + 6, y + 3); }
-    else { const y = Y(c.h) - 16; g.moveTo(x, y + 8); g.lineTo(x - 6, y - 3); g.lineTo(x + 6, y - 3); }
+    g.fillStyle = s.dir > 0 ? "rgba(38,194,129,.35)" : "rgba(255,84,104,.35)"; g.beginPath();
+    if (s.dir > 0) { const y = Y(c.l) + 14; g.moveTo(x, y - 5); g.lineTo(x - 4, y + 2); g.lineTo(x + 4, y + 2); } else { const y = Y(c.h) - 14; g.moveTo(x, y + 5); g.lineTo(x - 4, y - 2); g.lineTo(x + 4, y - 2); }
     g.fill();
+  }
+  const evs = an.sim.ev, opn = an.sim.open;
+  for (const e of evs) if (e.type === "exit" && e.i >= start && e.ei < end) {
+    g.strokeStyle = e.r >= 0 ? "rgba(38,194,129,.8)" : "rgba(255,84,104,.8)"; g.lineWidth = 1.5; g.setLineDash([4, 3]);
+    g.beginPath(); g.moveTo(X(Math.max(e.ei, start)), Y(e.entry)); g.lineTo(X(Math.min(e.i, end - 1)), Y(e.price)); g.stroke(); g.setLineDash([]);
+  }
+  if (opn && opn.ei < end) { g.strokeStyle = "#ffc531"; g.lineWidth = 1.5; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(X(Math.max(opn.ei, start)), Y(opn.entry)); g.lineTo(X(end - 1), Y(cs[end - 1].c)); g.stroke(); g.setLineDash([]); }
+  for (const e of evs) {
+    if (e.i < start || e.i >= end) continue; const c = cs[e.i], x = X(e.i);
+    if (e.type === "entry") {
+      g.fillStyle = e.dir > 0 ? "#26c281" : "#ff5468"; g.beginPath();
+      if (e.dir > 0) { const y = Y(c.l) + 16; g.moveTo(x, y - 8); g.lineTo(x - 7, y + 4); g.lineTo(x + 7, y + 4); } else { const y = Y(c.h) - 16; g.moveTo(x, y + 8); g.lineTo(x - 7, y - 4); g.lineTo(x + 7, y - 4); }
+      g.fill();
+    } else {
+      const y = e.dir > 0 ? Y(c.h) - 14 : Y(c.l) + 14;
+      g.strokeStyle = "#ffc531"; g.lineWidth = 2.2; g.beginPath(); g.moveTo(x - 5, y - 5); g.lineTo(x + 5, y + 5); g.moveTo(x + 5, y - 5); g.lineTo(x - 5, y + 5); g.stroke();
+    }
   }
   // preço atual
   const lc = cs[end - 1], ly = Y(lc.c), col = lc.c >= lc.o ? "#26c281" : "#ff5468";
@@ -441,15 +501,23 @@ function render() {
   const open = marketOpen(asset), tag = document.getElementById("liveTag");
   tag.className = "live" + (open ? " on" : "");
   setText("liveTxt", asset.crypto ? (streamOk ? "AO VIVO" : "conectando…") : (open ? "AO VIVO (atraso 15 min)" : "mercado fechado"));
-  document.getElementById("legend").innerHTML = '<span><i style="background:#ffc531"></i>Média ' + cfg.fast + '</span><span><i style="background:#a77bff"></i>Média ' + cfg.slow + '</span>' + (tf.intraday ? '<span><i style="background:#26c281"></i>Máx dia</span><span><i style="background:#ff5468"></i>Mín dia</span>' : '') + '<span>▲ compra ▼ venda</span>';
-  // sinal
-  const s = an.signals[an.signals.length - 1];
-  if (s) {
-    const ago = n - 1 - s.i, c = cs[s.i];
-    setText("sigBadge", s.dir > 0 ? "COMPRA" : "VENDA", "badge " + (s.dir > 0 ? "buy" : "sell"));
-    setText("sigText", (s.dir > 0 ? "Sinal de compra" : "Sinal de venda") + " em " + (tf.intraday ? c.date + " " + c.hm : c.date) + " a " + fmt(c.c, asset) + (ago === 0 ? " (agora)." : " (há " + ago + " candles). Desde então: " + ((last.c - c.c) * s.dir >= 0 ? "+" : "") + fmt((last.c - c.c) * s.dir, asset) + " " + (asset.futures ? "pts" : "") + "."));
-  } else { setText("sigBadge", "SEM SINAL", "badge none"); setText("sigText", "Nenhum sinal desta estratégia nos dados carregados."); }
-  setText("sigTitle", "Sinal · " + an.st.name);
+  document.getElementById("legend").innerHTML = '<span><i style="background:#ffc531"></i>Média ' + cfg.fast + '</span><span><i style="background:#a77bff"></i>Média ' + cfg.slow + '</span>' + (tf.intraday ? '<span><i style="background:#26c281"></i>Máx dia</span><span><i style="background:#ff5468"></i>Mín dia</span>' : '') + '<span>▲ entrada compra ▼ entrada venda <b style="color:#ffc531">✕</b> saída</span>';
+  // operação
+  const sim = an.sim, op = sim.open, lastEv = sim.ev[sim.ev.length - 1], when = i => tf.intraday ? cs[i].date + " " + cs[i].hm : cs[i].date;
+  const res = (v) => (v >= 0 ? "+" : "") + (asset.futures ? fmt(v, asset) + " pts" : v.toFixed(2) + "%");
+  const pnlNow = (dir, entry, px) => asset.futures ? (px - entry) * dir : (px - entry) / entry * dir * 100;
+  if (op) {
+    const now = pnlNow(op.dir, op.entry, last.c);
+    setText("sigBadge", op.dir > 0 ? "COMPRADO" : "VENDIDO", "badge " + (op.dir > 0 ? "buy" : "sell"));
+    setText("sigText", "Entrou em " + when(op.ei) + " a " + fmt(op.entry, asset) + ". Agora: " + res(now) + ". Aguardando o sinal de saída (" + EXITS[cfg.exit || "auto"].toLowerCase() + ").");
+    document.getElementById("sigText").className = now >= 0 ? "up" : "down";
+  } else {
+    setText("sigBadge", "FORA", "badge none");
+    document.getElementById("sigText").className = "";
+    if (lastEv && lastEv.type === "exit") setText("sigText", "Saiu da " + (lastEv.dir > 0 ? "compra" : "venda") + " em " + when(lastEv.i) + " (" + res(lastEv.r) + ") porque " + lastEv.why + ". Aguardando novo sinal de entrada.");
+    else setText("sigText", "Aguardando sinal de entrada.");
+  }
+  setText("sigTitle", "Operação · " + an.st.name);
   // tendência
   const f = an.fast[n - 1], sl = an.slow[n - 1], slPrev = an.slow[Math.max(0, n - 6)];
   let tr, tt, tc;
@@ -472,20 +540,21 @@ function render() {
     setText("dayHi", fmt(last.h, asset)); setText("dayLo", fmt(last.l, asset)); setText("prevHi", fmt(cs[n - 2].h, asset)); setText("prevLo", fmt(cs[n - 2].l, asset));
     setText("hiloTxt", "Máxima do ano: " + fmt(h, asset) + " · Mínima do ano: " + fmt(l, asset) + ".");
   }
-  // teste
-  const bt = backtest(cs, an, asset, tf.intraday && !asset.crypto)
-  const btR = runBT(cs, stratDirs(cs, an.st), 1, cs.length, btOpts(asset, tf)), unit = asset.futures ? " pts" : "";
-  const money = v => asset.crypto ? (bt.pct >= 0 ? "+" : "") + bt.pct.toFixed(1) + "% (R$ " + (bt.pct * 10).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + " a cada R$ 1.000)" : asset.futures ? "R$ " + (v * asset.pointValue).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " por contrato" : "R$ " + (v * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " com 100 ações";
+  // teste (já com as saídas e as taxas)
+  const bt = simulate(cs, stratDirs(cs, an.st), 1, n, btOpts(asset, tf)), unit = asset.futures ? " pts" : "%";
+  const bh = asset.futures ? last.c - cs[0].c : (last.c / cs[0].c - 1) * 100;
+  const money = v => asset.futures ? "R$ " + (v * asset.pointValue).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " por contrato" : "R$ " + (v * 10).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " a cada R$ 1.000";
+  const f1 = v => (v >= 0 ? "+" : "") + (asset.futures ? fmt(v, asset) : v.toFixed(1)) + unit;
   document.getElementById("bt").innerHTML = bt.n ? (
-    '<div class="row"><span>Estratégia</span><b>' + an.st.name + '</b></div>' +
-    '<div class="row"><span>Resultado já com taxas</span><b class="' + (btR.sum >= 0 ? "up" : "down") + '">' + (btR.sum >= 0 ? "+" : "") + (asset.futures ? fmt(btR.sum, asset) + " pts" : btR.sum.toFixed(1) + "%") + '</b></div>' +
+    '<div class="row"><span>Entrada</span><b>' + an.st.name + '</b></div>' +
+    '<div class="row"><span>Saída</span><span>' + EXITS[cfg.exit || "auto"] + '</span></div>' +
     '<div class="row"><span>Operações</span><b>' + bt.n + '</b></div>' +
     '<div class="row"><span>Acertos</span><b>' + bt.wins + ' (' + Math.round(bt.wins / bt.n * 100) + '%)</b></div>' +
-    '<div class="row"><span>Resultado</span><b class="' + (bt.total >= 0 ? "up" : "down") + '">' + (bt.total >= 0 ? "+" : "") + fmt(bt.total, asset) + unit + '</b></div>' +
-    '<div class="row"><span>Em dinheiro</span><span class="' + (bt.total >= 0 ? "up" : "down") + '">' + money(bt.total) + '</span></div>' +
-    '<div class="row"><span>Pior sequência</span><span class="down">' + fmt(bt.dd, asset) + unit + '</span></div>' +
-    '<div class="row"><span>Só ' + (asset.futures ? "comprar e segurar" : "comprar e segurar") + '</span><span>' + (asset.crypto ? (bt.bhPct >= 0 ? "+" : "") + bt.bhPct.toFixed(1) + "%" : (bt.buyHold >= 0 ? "+" : "") + fmt(bt.buyHold, asset) + unit) + '</span></div>' +
-    '<p>Sem custos de corretagem e taxas.' + (tf.intraday && !asset.crypto ? " Zera a posição no fim de cada dia." : "") + (asset.futures ? " Opera comprado e vendido." : " Só compra (sem venda a descoberto).") + '</p>'
+    '<div class="row"><span>Resultado com taxas</span><b class="' + (bt.sum >= 0 ? "up" : "down") + '">' + f1(bt.sum) + '</b></div>' +
+    '<div class="row"><span>Em dinheiro</span><span class="' + (bt.sum >= 0 ? "up" : "down") + '">' + money(bt.sum) + '</span></div>' +
+    '<div class="row"><span>Pior sequência</span><span class="down">' + f1(bt.dd) + '</span></div>' +
+    '<div class="row"><span>Só comprar e segurar</span><span>' + f1(bh) + '</span></div>' +
+    '<p>' + (tf.intraday && !asset.crypto ? "Zera a posição no fim de cada dia. " : "") + (asset.futures || cfg.short ? "Opera comprado e vendido." : "Só compra: o sinal de venda serve para sair.") + '</p>'
   ) : '<p>Poucos sinais nos dados carregados para testar.</p>';
 }
 
@@ -494,11 +563,15 @@ function isWatched(id, tf) { return cfg.watch.some(w => w.id === id && w.tf === 
 function checkAlerts() {
   if (isWatched(cfg.asset, cfg.tf) && window.Android && Android.setWatch) return; // a vigia no fundo já avisa
   const cs = data.candles, asset = curAsset(), key = asset.id + "|" + cfg.tf, seen = store.get("seen", {});
-  const lastSig = an.signals[an.signals.length - 1], lastBrk = an.breaks[an.breaks.length - 1];
+  const lastBrk = an.breaks[an.breaks.length - 1];
   const fire = (t, b) => { if (window.Android && Android.notify) Android.notify(t, b); };
-  if (cfg.alert && lastSig && lastSig.i >= cs.length - 2) {
-    const id = key + "|s|" + cs[lastSig.i].t;
-    if (!seen[id] && seen[key + "|init"]) fire((lastSig.dir > 0 ? "COMPRA" : "VENDA") + " · " + asset.name, an.st.name + " · preço " + fmt(cs[lastSig.i].c, asset));
+  for (const e of an.sim.ev) {
+    if (e.i < cs.length - 2 || !cfg.alert) continue;
+    const id = key + "|e|" + e.type + "|" + cs[e.i].t;
+    if (!seen[id] && seen[key + "|init"]) {
+      if (e.type === "entry") fire((e.dir > 0 ? "🟢 ENTRADA DE COMPRA" : "🔴 ENTRADA DE VENDA") + " · " + asset.name, an.st.name + " · preço " + fmt(e.price, asset));
+      else fire("🏁 HORA DE SAIR da sua " + (e.dir > 0 ? "compra" : "venda") + " · " + asset.name, "Motivo: " + e.why + ". Resultado: " + (e.r >= 0 ? "+" : "") + (asset.futures ? fmt(e.r, asset) + " pts" : e.r.toFixed(2) + "%") + ". Aguarde o próximo sinal.");
+    }
     seen[id] = 1;
   }
   if (cfg.brk && lastBrk && lastBrk.i >= cs.length - 2) {
@@ -514,7 +587,7 @@ function checkAlerts() {
 // ================= VIGIA NO FUNDO =================
 function syncWatch() {
   store.set("cfg", cfg);
-  const list = cfg.watch.map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name }); });
+  const list = cfg.watch.map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: cfg.exit || "auto", short: !!cfg.short || w.id === "^BVSP" }); });
   if (window.Android && Android.setWatch) Android.setWatch(JSON.stringify(list));
   renderWatch();
 }
@@ -570,7 +643,7 @@ document.getElementById("optRun").onclick = async () => {
       const cs = h.candles; if (cs.length < 60) continue;
       optOut.innerHTML = '<p class="mut">Testando ' + STRATS.length + ' estratégias em ' + tf.label + '…</p>';
       await new Promise(r => setTimeout(r, 30));
-      const o = btOpts(a, tf), lastT = cs[cs.length - 1].t;
+      const o = btOpts(a, tf), lastT = cs[cs.length - 1].t; o.P = exitPrep(cs);
       // início de cada período (os indicadores usam os candles de antes para aquecer)
       const starts = {}, have = {};
       for (const d of PERIODS) { const t0 = lastT - d * 86400; const i = cs.findIndex(c => c.t >= t0); starts[d] = Math.max(1, i); have[d] = cs[0].t <= t0 + 86400; }
@@ -693,6 +766,8 @@ document.getElementById("refreshBtn").onclick = () => refresh(true);
 const sheet = document.getElementById("sheet");
 document.getElementById("cfgBtn").onclick = () => {
   document.getElementById("cfgFast").value = cfg.fast; document.getElementById("cfgSlow").value = cfg.slow; document.getElementById("cfgAdd").value = "";
+  const ex = document.getElementById("cfgExit"); ex.innerHTML = ""; for (const k in EXITS) { const o = document.createElement("option"); o.value = k; o.textContent = EXITS[k]; ex.appendChild(o); } ex.value = cfg.exit || "auto";
+  document.getElementById("cfgShort").checked = !!cfg.short;
   document.getElementById("cfgAlert").checked = cfg.alert; document.getElementById("cfgBreak").checked = cfg.brk; document.getElementById("cfgAuto").checked = cfg.auto;
   sheet.classList.add("open");
 };
@@ -703,6 +778,7 @@ document.getElementById("cfgSave").onclick = () => {
   const add = document.getElementById("cfgAdd").value.trim().toUpperCase().replace(/\.SA$/, "");
   if (/^[A-Z]{4}\d{1,2}$/.test(add) && !cfg.extra.includes(add)) { cfg.extra.push(add); cfg.asset = add + ".SA"; }
   else if (/^[A-Z0-9]{2,12}(BRL|USDT)$/.test(add) && !cfg.extra.includes(add)) { cfg.extra.push(add); cfg.asset = add; }
+  cfg.exit = document.getElementById("cfgExit").value; cfg.short = document.getElementById("cfgShort").checked;
   cfg.alert = document.getElementById("cfgAlert").checked; cfg.brk = document.getElementById("cfgBreak").checked; cfg.auto = document.getElementById("cfgAuto").checked;
   syncWatch(); sheet.classList.remove("open"); buildUi(); refresh();
 };
