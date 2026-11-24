@@ -169,6 +169,7 @@ class MonitorService : Service() {
     private fun check(w: Watch) {
         val cs = candles(w); if (cs.size < w.slow + 3) return
         val k = cs.size - 1; val c = cs[k]
+        if (w.robot) Broker.beat(this, w.id, w.tf)
         val tfName = when (w.tf) { "60m" -> "1 hora"; "1d" -> "diário"; else -> w.tf.removeSuffix("m") + " min" }
         if (w.cross) {
             val dirs = Strategies.dirs(cs, w.strat) { day(it) }

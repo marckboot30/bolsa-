@@ -159,6 +159,12 @@ object Broker {
         sp(ctx).edit().putString("log", n.toString()).apply()
     }
 
+    /** A vigia avisa que conferiu o ativo (para o app mostrar "conferido há X s"). */
+    fun beat(ctx: Context, id: String, tf: String) = sp(ctx).edit().putLong("beat_${id}|$tf", System.currentTimeMillis()).apply()
+
+    fun status(ctx: Context, id: String, tf: String): String = JSONObject().put("mode", mode(ctx)).put("inPos", inPosition(ctx, id))
+        .put("beat", sp(ctx).getLong("beat_${id}|$tf", 0L)).put("now", System.currentTimeMillis()).toString()
+
     fun logJson(ctx: Context): String = sp(ctx).getString("log", "[]") ?: "[]"
 
     /** Lembra se o robô está comprado em cada ativo (para não comprar duas vezes). */

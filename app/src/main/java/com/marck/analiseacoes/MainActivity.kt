@@ -96,6 +96,9 @@ class MainActivity : Activity() {
         fun brokerInfo(): String = Broker.info(this@MainActivity).toString()
 
         @JavascriptInterface
+        fun robotStatus(id: String, tf: String): String = Broker.status(this@MainActivity, id, tf)
+
+        @JavascriptInterface
         fun brokerLog(): String = Broker.logJson(this@MainActivity)
 
         /** action: account | buy | sell — responde em window.onBroker(id, ok, base64) */

@@ -100,6 +100,7 @@
 </div>
 <div class="legend" id="legend"></div>
 <div class="status" id="status"></div>
+<div class="perf" id="live" style="display:none"></div>
 <div class="perf" id="perf"><div class="hd"><span>DESEMPENHO DA ANÁLISE</span><b>—</b></div></div>
 <div class="cards">
   <div class="card wide"><h3 id="sigTitle">Sinal da estratégia</h3><div class="signal"><span id="sigBadge" class="badge none">—</span><p id="sigText" style="margin:0"></p></div></div>
@@ -713,6 +714,11 @@ function draw() {
   if (tf.intraday && an.st.type === "h1") { const r = firstHour(cs.slice(0, end), an.st.win || 60).fh[end - 1];
     if (r && cs[r.end].day === lastDay) { hline(r.hi, "#4da3ff", "MÁX 1ª HORA" + (r.trend === 1 ? " ↑" : "")); hline(r.lo, "#ff9f43", "MÍN 1ª HORA" + (r.trend === -1 ? " ↓" : "")); } }
   { const op = an.sim.open, tg = goalPts(curAsset()); if (op && tg) hline(op.entry + op.dir * tg, "#ffd166", "🎯 META"); }
+  if (asset.crypto && window.Android && Android.robotStatus) { const R = robotState(asset); if (R.open) hline(R.open.price, "#c084fc", "🤖 ENTRADA DO ROBÔ " + fmt(R.open.price, asset), [6, 3]);
+    const span = tf.min * 60000;
+    for (const o of R.mine) { const i = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span); if (i < start || i >= end || o.price > hi || o.price < lo) continue;
+      const x = X(i), y = Y(o.price); g.beginPath(); g.arc(x, y, 6, 0, 7); g.fillStyle = o.side === "BUY" ? "#1f9e6a" : "#d9414f"; g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.stroke();
+      g.font = "bold 10px system-ui"; g.textAlign = "center"; g.textBaseline = o.side === "BUY" ? "top" : "bottom"; g.fillStyle = "#e9d5ff"; g.fillText(o.side === "BUY" ? "🤖 C" : "🤖 V", x, o.side === "BUY" ? y + 9 : y - 9); } }
   // candles
   const bw = Math.max(1, cw * .62);
   for (let i = start; i < end; i++) {
@@ -769,8 +775,49 @@ document.getElementById("zOut").onclick = () => { view.n = Math.min(300, Math.ro
 
 // ================= PAINEL =================
 function setText(id, t, cls) { const el = document.getElementById(id); el.textContent = t; if (cls !== undefined) el.className = cls; }
+// ================= ROBÔ AO VIVO =================
+let liveLog = [], liveLogT = 0;
+function robotLog() { if (Date.now() - liveLogT > 3000) { try { liveLog = JSON.parse(Android.brokerLog()); } catch (e) { liveLog = []; } liveLogT = Date.now(); } return liveLog; }
+function robotState(a) {
+  let st = { mode: "demo", inPos: false, beat: 0, now: Date.now() }; try { st = JSON.parse(Android.robotStatus(a.id, cfg.tf)); } catch (e) {}
+  const mine = robotLog().filter(o => o.symbol === a.id && (o.mode || "demo") === st.mode && o.side !== "ERRO");
+  const lastBuy = mine.find(o => o.side === "BUY"), open = mine[0] && mine[0].side === "BUY" ? mine[0] : null;
+  // operações fechadas (compra → venda), da mais nova para a mais velha
+  const trips = []; for (let i = 0; i < mine.length; i++) if (mine[i].side === "SELL") { const b = mine.slice(i + 1).find(o => o.side === "BUY"); if (b) trips.push({ buy: b, sell: mine[i], r: mine[i].quote - b.quote, pct: (mine[i].price / b.price - 1) * 100 }); }
+  const err = robotLog().find(o => o.symbol === a.id && o.side === "ERRO");
+  return { st, mine, open, lastBuy, trips, err };
+}
+function renderLive() {
+  const el = document.getElementById("live"), a = curAsset(), w = cfg.watch.find(x => x.id === a.id && x.tf === cfg.tf && x.robot);
+  if (!a.crypto || !(window.Android && Android.robotStatus) || !data) { el.style.display = "none"; return; }
+  const R = robotState(a); if (!w && !R.open) { el.style.display = "none"; return; }
+  el.style.display = "";
+  const px = data.candles[data.candles.length - 1].c, cur = brkQuoteCur(a), money = v => (v >= 0 ? "+" : "−") + (cur === "R$" ? "R$ " : "") + Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (cur === "USDT" ? " USDT" : "");
+  const ago = R.st.beat ? Math.max(0, Math.round((R.st.now - R.st.beat) / 1000)) : null, real = R.st.mode === "real";
+  const tm = t => new Date(t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  let h = '<div class="hd"><span>🤖 ROBÔ AO VIVO · ' + (real ? '<b class="down">CONTA REAL</b>' : 'CONTA DE TESTE') + '</span><b>' + (w ? '<span class="up">● ligado</span>' : '<span class="mut">desligado</span>') + '</b></div>';
+  h += '<p class="mut" style="font-size:12px;margin:4px 0 8px">' + curStrat(a.id, cfg.tf).name + ' · ' + curTf().label + (ago != null ? ' · conferido há ' + (ago < 90 ? ago + ' s' : Math.round(ago / 60) + ' min') : ' · esperando a vigia começar') + '</p>';
+  if (R.open) {
+    const o = R.open, val = o.qty * px, r = val - o.quote, pct = (px / o.price - 1) * 100, up = r >= 0;
+    h += '<div style="display:flex;align-items:center;gap:10px"><span class="badge ' + (up ? "buy" : "sell") + '" style="background:' + (up ? "#1f9e6a" : "#d9414f") + ';color:#fff;padding:8px 12px;border-radius:10px;font-weight:900">COMPRADO</span>' +
+      '<div style="flex:1"><div style="font-size:22px;font-weight:900" class="' + (up ? "up" : "down") + '">' + money(r) + ' <span style="font-size:15px">(' + (pct >= 0 ? "+" : "") + pct.toFixed(2) + '%)</span></div>' +
+      '<div class="mut" style="font-size:12px">resultado agora, se vender neste preço</div></div></div>' +
+      '<div class="pnums" style="grid-template-columns:repeat(3,1fr)"><div><b style="font-size:14px">' + fmt(o.price, a) + '</b><span>Entrou ' + tm(o.t) + '</span></div><div><b style="font-size:14px">' + fmt(px, a) + '</b><span>Preço agora</span></div><div><b style="font-size:14px">' + (cur === "R$" ? "R$ " : "") + o.quote.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b><span>Investido</span></div></div>' +
+      '<p class="mut" style="font-size:12px;margin:6px 0 0">Vende sozinho quando sair o sinal de saída da estratégia.</p>';
+  } else {
+    h += '<div style="display:flex;align-items:center;gap:10px"><span style="background:#263042;padding:8px 12px;border-radius:10px;font-weight:900;color:#b9c1cf">FORA</span><div style="flex:1;font-size:14px">' + (w ? "Aguardando o próximo <b>sinal de compra</b> para entrar." : "Robô desligado neste tempo gráfico.") + '</div></div>';
+  }
+  if (R.trips.length) {
+    const tot = R.trips.reduce((s, t) => s + t.r, 0), wins = R.trips.filter(t => t.r > 0).length;
+    h += '<div class="row" style="font-size:13px;margin-top:8px"><span>Operações fechadas: <b>' + R.trips.length + '</b> · <span class="up">' + wins + ' ganhos</span> · <span class="down">' + (R.trips.length - wins) + ' perdas</span></span><b class="' + (tot >= 0 ? "up" : "down") + '">' + money(tot) + '</b></div>';
+    for (const t of R.trips.slice(0, 3)) h += '<div class="row" style="font-size:12px"><span class="mut">' + tm(t.buy.t) + ' → ' + tm(t.sell.t) + ' · ' + (t.sell.why || "") + '</span><span class="' + (t.r >= 0 ? "up" : "down") + '">' + money(t.r) + ' (' + (t.pct >= 0 ? "+" : "") + t.pct.toFixed(2) + '%)</span></div>';
+  }
+  if (R.err && (!R.mine[0] || R.err.t > R.mine[0].t)) h += '<p class="down" style="font-size:12px;margin:6px 0 0">⚠️ Último erro (' + tm(R.err.t) + '): ' + R.err.why + '</p>';
+  el.innerHTML = h;
+}
+setInterval(() => { if (!document.hidden) renderLive(); }, 5000);
 function render() {
-  draw();
+  draw(); renderLive();
   const cs = data.candles, asset = curAsset(), tf = curTf(), n = cs.length, last = cs[n - 1];
   const ref = tf.intraday ? (an.prev ? cs.filter(c => c.day === an.prev).slice(-1)[0].c : data.prevClose) : cs[n - 2].c;
   const ch = last.c - ref, pct = ch / ref * 100;
