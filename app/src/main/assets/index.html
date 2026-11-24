@@ -77,9 +77,28 @@
   .hidden { display: none !important; }
   .sheet h2 { margin: 0 0 12px; font-size: 18px; }
   .sheet label { display: block; font-size: 13px; color: #8a94a6; margin: 12px 0 6px; }
-  #robotCard input, #robotCard label { display: block; } #robotCard label { font-size: 13px; color: #b9c1cf; margin: 8px 0 4px; }
-  #robotCard input, .sheet input[type=number], .sheet input[type=text] { width: 100%; height: 44px; border-radius: 10px; border: 1px solid #263042; background: #0b0e14; padding: 0 12px; font-size: 16px; }
+  #robotCard input:not([type=checkbox]), #robotCard label { display: block; } #robotCard label { font-size: 13px; color: #b9c1cf; margin: 8px 0 4px; }
+  #robotCard input:not([type=checkbox]), .sheet input[type=number], .sheet input[type=text] { width: 100%; height: 44px; border-radius: 10px; border: 1px solid #263042; background: #0b0e14; padding: 0 12px; font-size: 16px; }
   .sw { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; font-size: 15px; }
+  .sw span { padding-right: 10px; }
+  .sw input[type=checkbox] { -webkit-appearance: none; appearance: none; flex: none; width: 44px; height: 26px; border-radius: 13px; background: #263042; position: relative; margin: 0; transition: background .2s; }
+  .sw input[type=checkbox]::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #c9d1dd; transition: transform .2s; }
+  .sw input[type=checkbox]:checked { background: #2b6cff; } .sw input[type=checkbox]:checked::after { transform: translateX(18px); background: #fff; }
+  .rbHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .seg { display: flex; background: #0b0e14; border: 1px solid #263042; border-radius: 10px; padding: 2px; }
+  .seg button { height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: none; font-size: 12px; font-weight: 800; color: #8a94a6; }
+  .seg button.on { background: #2b6cff; color: #fff; } .seg button.real.on { background: #d9414f; }
+  .rbMain { margin: 4px 0 0 !important; height: 44px !important; font-size: 15px !important; }
+  .rbSec { border-top: 1px solid #1c2433; padding: 2px 0; }
+  .rbSec summary { list-style: none; padding: 10px 0; font-size: 14px; font-weight: 700; color: #c9d1dd; display: flex; justify-content: space-between; }
+  .rbSec summary::-webkit-details-marker { display: none; }
+  .rbSec summary::after { content: "▾"; color: #6f7a8d; } .rbSec[open] summary::after { content: "▴"; }
+  .rbRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; }
+  .rbRow label { margin: 0 !important; font-size: 13px !important; color: #b9c1cf; }
+  #robotCard input.sm { height: 38px !important; font-size: 15px; border-radius: 10px; }
+  .rbRow input.sm { width: 110px !important; text-align: right; }
+  .rbBtns { display: flex; gap: 6px; margin: 8px 0 6px; } .rbBtns .chip { flex: 1; height: 36px; font-size: 13px; padding: 0 6px; }
+  .rbPanic { width: 100%; height: 38px; margin-top: 8px; border-radius: 10px; border: 1px solid #d9414f; background: rgba(217,65,79,.08); color: #ff8a95; font-size: 13px; font-weight: 800; }
   .sw input { width: 22px; height: 22px; }
   .primary { width: 100%; height: 48px; margin-top: 18px; border-radius: 12px; border: none; background: #2b6cff; color: #fff; font-weight: 800; font-size: 16px; }
 </style>
@@ -115,27 +134,30 @@
     <p id="hiloTxt"></p>
   </div>
   <div class="card wide" id="btCard"><h3>Teste no passado (detalhes)</h3><div id="bt"></div></div>
-  <div class="card wide" id="robotCard"><h3>🤖 Robô na Binance</h3>
-    <div class="tf" id="brkModes" style="padding:0 0 6px"></div>
+  <div class="card wide" id="robotCard">
+    <div class="rbHead"><h3 style="margin:0">🤖 Robô na Binance</h3><div class="seg" id="brkModes"></div></div>
     <div id="brkWarn"></div>
-    <p id="brkStatus" style="margin:0 0 6px"></p>
-    <details id="brkKeys"><summary class="mut" style="font-size:13px;padding:4px 0">Chave da API deste modo</summary>
-      <label>Chave da API (API Key)</label><input type="text" id="brkKey" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <label>Segredo (Secret Key)</label><input type="password" id="brkSecret" autocomplete="off">
-      <p class="mut" id="brkHelp" style="font-size:12px"></p>
-      <div style="display:flex;gap:8px"><button class="primary" id="brkSave" style="flex:2">Salvar e testar</button><button class="chip" id="brkDel" style="flex:1;height:44px;margin-top:10px">Apagar</button></div>
+    <p id="brkStatus" style="margin:6px 0;font-size:13px"></p>
+    <button class="primary rbMain" id="brkRobot">🤖 Ligar robô neste ativo</button>
+    <div id="brkOut" style="margin-top:6px"></div>
+    <details class="rbSec"><summary>💰 Valor e ordens manuais</summary>
+      <div class="rbRow"><label for="brkQuote">Valor por operação</label><input type="number" id="brkQuote" min="1" step="1" class="sm"></div>
+      <div class="rbBtns"><button class="chip" id="brkBal">Saldo</button><button class="chip" id="brkBuy">Comprar</button><button class="chip" id="brkSell">Vender tudo</button></div>
     </details>
-    <label>Valor por operação</label><input type="number" id="brkQuote" min="1" step="1">
-    <div style="display:flex;gap:6px;margin-top:8px"><button class="chip" id="brkBal" style="flex:1">Ver saldo</button><button class="chip" id="brkBuy" style="flex:1">Comprar agora</button><button class="chip" id="brkSell" style="flex:1">Vender tudo</button></div>
-    <button class="primary" id="brkRobot" style="margin-top:10px">🤖 Ligar robô neste ativo</button>
-    <h3 style="margin-top:14px">🛡 Proteção</h3>
-    <div class="sw" style="margin-top:4px"><span>Colocar alvo e stop direto na Binance (fecha mesmo com o celular desligado)</span><input type="checkbox" id="brkOco"></div>
-    <div style="display:flex;gap:8px"><div style="flex:1"><label>Perda máxima por dia</label><input type="number" id="brkMaxLoss" min="0" step="1"></div>
-    <div style="flex:1"><label>Parar após perdas seguidas</label><input type="number" id="brkMaxLosses" min="0" max="20" step="1"></div></div>
-    <p class="mut" style="font-size:12px;margin:4px 0 0">Ao bater um desses limites, o robô para de comprar até o dia seguinte. Use 0 para desligar.</p>
-    <button class="primary" id="brkPanic" style="margin-top:10px;background:#d9414f">🚨 Vender tudo e desligar o robô</button>
-    <div id="brkOut" style="margin-top:8px"></div>
-    <h3 style="margin-top:12px">Últimas ordens</h3><div id="brkLog"></div>
+    <details class="rbSec"><summary>🛡 Proteção</summary>
+      <div class="sw" style="margin-top:6px;font-size:13px"><span>Alvo e stop direto na Binance</span><input type="checkbox" id="brkOco"></div>
+      <div class="rbRow"><label for="brkMaxLoss">Perda máxima por dia</label><input type="number" id="brkMaxLoss" min="0" step="1" class="sm"></div>
+      <div class="rbRow"><label for="brkMaxLosses">Parar após perdas seguidas</label><input type="number" id="brkMaxLosses" min="0" max="20" step="1" class="sm"></div>
+      <p class="mut" style="font-size:11px;margin:4px 0 0">Ao bater um limite, o robô para de comprar até amanhã. 0 desliga.</p>
+    </details>
+    <details class="rbSec" id="brkKeys"><summary>🔑 Chave da API deste modo</summary>
+      <label>Chave da API (API Key)</label><input type="text" id="brkKey" autocomplete="off" autocapitalize="off" spellcheck="false" class="sm">
+      <label>Segredo (Secret Key)</label><input type="password" id="brkSecret" autocomplete="off" class="sm">
+      <p class="mut" id="brkHelp" style="font-size:12px"></p>
+      <div class="rbBtns"><button class="chip on" id="brkSave" style="flex:2">Salvar e testar</button><button class="chip" id="brkDel">Apagar</button></div>
+    </details>
+    <details class="rbSec"><summary>📜 Últimas ordens</summary><div id="brkLog" style="margin-top:6px"></div></details>
+    <button class="rbPanic" id="brkPanic">🚨 Vender tudo e desligar o robô</button>
   </div>
   <div class="card wide" id="watchCard"><h3>Vigiando no fundo (avisa mesmo com o app fechado)</h3><div id="watchList"></div>
     <button class="primary" id="watchToggle" style="margin-top:10px">🔔 Vigiar este ativo neste tempo gráfico</button>
@@ -1074,7 +1096,7 @@ window.openFrom = (id, tf, strat, exit, fromReport) => {
   window.scrollTo(0, 0);
 };
 // ================= ROBÔ (BINANCE) =================
-const BRK_MODES = { demo: "Demo (teste)", testnet: "Testnet", real: "⚠️ REAL" };
+const BRK_MODES = { demo: "Demo", testnet: "Testnet", real: "⚠️ Real" };
 const brkReq = {}; let brkId = 0;
 window.onBroker = (id, ok, b64) => { const p = brkReq[id]; if (!p) return; delete brkReq[id]; const t = decodeURIComponent(escape(atob(b64))); ok ? p.res(JSON.parse(t)) : p.rej(new Error(t)); };
 function brk(action, symbol, amount) {
@@ -1086,8 +1108,7 @@ function brkQuoteCur(a) { return /BRL$/.test(a.id) ? "R$" : /USDT$/.test(a.id) ?
 function renderRobot() {
   const a = curAsset(), inf = brkInfo(), m = inf.mode, mk = inf[m] || {}, w = cfg.watch.find(x => x.id === a.id && x.tf === cfg.tf), on = !!(w && w.robot);
   const box = document.getElementById("brkModes"); box.innerHTML = "";
-  for (const k in BRK_MODES) { const b = document.createElement("button"); b.className = "chip" + (k === m ? " on" : ""); b.textContent = BRK_MODES[k];
-    if (k === "real" && k === m) b.style.background = b.style.borderColor = "#d9414f";
+  for (const k in BRK_MODES) { const b = document.createElement("button"); b.className = (k === "real" ? "real" : "") + (k === m ? " on" : ""); b.textContent = BRK_MODES[k];
     b.onclick = () => k === "real" && m !== "real" ? askReal() : (Android.brokerSave("", "", k), renderRobot()); box.appendChild(b); }
   document.getElementById("brkWarn").innerHTML = m === "real" ? '<p style="background:#3a1219;border:1px solid #d9414f;border-radius:10px;padding:8px;margin:0 0 6px;color:#ffb3bb"><b>CONTA REAL:</b> as ordens usam o seu dinheiro de verdade.</p>' : "";
   document.getElementById("brkStatus").innerHTML = mk.hasKey ? '<span class="up">● Chave salva</span> <span class="mut">(' + mk.key + ')</span>' : '<span class="down">● Falta colocar a chave da API deste modo</span>';
@@ -1098,14 +1119,14 @@ function renderRobot() {
     : "Na Binance, entre em <b>Demo Trading</b> (demo.binance.com) → Gerenciamento de API → Criar chave. O dinheiro lá é de mentira.";
   const cur = brkQuoteCur(a); document.getElementById("brkQuote").value = cfg.robotQuote || 50;
   document.getElementById("brkOco").checked = cfg.robotOco !== false; document.getElementById("brkMaxLoss").value = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10; document.getElementById("brkMaxLosses").value = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
-  document.getElementById("brkMaxLoss").previousElementSibling.textContent = "Perda máxima por dia" + (cur ? " (" + cur + ")" : "");
+  document.querySelector('label[for="brkMaxLoss"]').textContent = "Perda máxima por dia" + (cur ? " (" + cur + ")" : "");
   document.getElementById("brkPanic").disabled = !a.crypto;
-  document.getElementById("brkQuote").previousElementSibling.textContent = "Valor por operação" + (cur ? " (" + cur + ")" : "");
+  document.querySelector('label[for="brkQuote"]').textContent = "Valor por operação" + (cur ? " (" + cur + ")" : "");
   const rb = document.getElementById("brkRobot");
   if (!a.crypto) { rb.disabled = true; rb.textContent = "Por enquanto o robô opera só cripto na Binance"; rb.style.opacity = .5; }
-  else { rb.disabled = false; rb.style.opacity = 1; rb.style.background = on ? "#d9414f" : ""; rb.textContent = on ? "Desligar robô de " + a.name + " · " + curTf().label : "🤖 Ligar robô em " + a.name + " · " + curTf().label; }
+  else { rb.disabled = false; rb.style.opacity = 1; rb.style.background = on ? "#d9414f" : ""; rb.textContent = (on ? "⏹ Desligar robô · " : "🤖 Ligar robô · ") + parts(a).t + " · " + curTf().label; }
   ["brkBuy", "brkSell"].forEach(id => document.getElementById(id).disabled = !a.crypto);
-  document.getElementById("brkBuy").textContent = "Comprar " + (cur ? cur + " " : "") + (cfg.robotQuote || 50);
+  document.getElementById("brkBuy").textContent = "Comprar " + (cfg.robotQuote || 50);
   renderBrkLog();
 }
 function renderBrkLog() {
