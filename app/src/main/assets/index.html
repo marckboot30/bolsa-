@@ -1059,12 +1059,13 @@ function draw() {
   if (tf.intraday && an.st.type === "h1" && V.fh) { const r = firstHour(cs.slice(0, end), an.st.win || 60).fh[end - 1];
     if (r && cs[r.end].day === lastDay) { hline(r.hi, "#4da3ff", "MÁX 1ª HORA" + (r.trend === 1 ? " ↑" : "")); hline(r.lo, "#ff9f43", "MÍN 1ª HORA" + (r.trend === -1 ? " ↓" : "")); } }
   { const op = an.sim.open, tg = goalPts(curAsset()); if (op && tg) hline(op.entry + op.dir * tg, "#ffd166", "🎯 META"); }
+  const robotLbl = [];
   if (asset.crypto && window.Android && Android.robotStatus && V.robo) { const R = robotState(asset), span = tf.min * 60000; if (R.open) { const o = R.open, q = o.quote || 0, fees = q * .002;
       const m = p => q ? (p / o.price - 1) * q - fees : 0, ms = v => (v >= 0 ? "+" : "−") + "$" + Math.abs(v).toFixed(2).replace(".", ",");
       // linha do robô: se estiver fora da tela, fica presa na borda com uma seta
       const rl = (v, col, label, dash, w) => { const out = v > hi ? "↑ " : v < lo ? "↓ " : "", y = Math.max(padT + 12, Math.min(H - padB - 2, Y(v)));
         g.strokeStyle = col; g.lineWidth = w || 1.6; g.setLineDash(out ? [1, 4] : dash); g.beginPath(); g.moveTo(0, y); g.lineTo(W - padR, y); g.stroke(); g.setLineDash([]);
-        g.font = "bold 10px system-ui"; g.textAlign = "left"; g.textBaseline = "bottom"; const t = out + label; g.fillStyle = "rgba(11,15,22,.75)"; g.fillRect(2, y - 13, g.measureText(t).width + 6, 12); g.fillStyle = col; g.fillText(t, 5, y - 2); return y; };
+        robotLbl.push(() => { g.font = "bold 10px system-ui"; g.textAlign = "left"; g.textBaseline = "bottom"; const t = out + label; g.fillStyle = "rgba(11,15,22,.88)"; g.fillRect(2, y - 13, g.measureText(t).width + 6, 12); g.fillStyle = col; g.fillText(t, 5, y - 2); }); return y; };
       const iE = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span), xE = iE >= start ? X(iE) : 0;
       // faixa de lucro garantido (stop acima da entrada)
       if (o.sl && o.sl > o.price) { const y1 = Math.max(padT, Math.min(H - padB, Y(o.sl))), y0 = Math.max(padT, Math.min(H - padB, Y(o.price))); g.fillStyle = "rgba(38,194,129,.10)"; g.fillRect(xE, y1, W - padR - xE, y0 - y1); }
@@ -1093,6 +1094,7 @@ function draw() {
     for (let i = start; i < end; i++) { if (arr[i] == null || (tf.intraday && i > start && cs[i].day !== cs[i - 1].day)) { on = false; continue; } on ? g.lineTo(X(i), Y(arr[i])) : g.moveTo(X(i), Y(arr[i])); on = true; }
     g.stroke();
   }
+  robotLbl.forEach(f => f()); // nomes das linhas do robô por cima dos candles
   // padrões de candle (só os fortes)
   g.font = "bold 9px system-ui"; g.textAlign = "center";
   for (let i = start; V.pats && i < end; i++) { const p = an.pats[i]; if (!p || !["EA", "EB", "M", "EC"].includes(p.k)) continue; const c = cs[i]; g.fillStyle = p.dir > 0 ? "#7fe3b6" : p.dir < 0 ? "#ff9aa6" : "#c9d1dd"; if (p.dir >= 0) { g.textBaseline = "top"; g.fillText(p.k, X(i), Y(c.l) + 3); } else { g.textBaseline = "bottom"; g.fillText(p.k, X(i), Y(c.h) - 3); } }
