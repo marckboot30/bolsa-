@@ -95,6 +95,8 @@
   .lchip.on .logo { box-shadow: 0 0 0 2px #2b6cff; }
   .lchip i { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%; background: #26c281; border: 2px solid #141a25; }
   .lchip i.pz { background: #ffc531; } .lchip i.of { background: #6f7a8d; }
+  .lclose { display: block; margin: 4px 0 0 auto; height: 24px; padding: 0 8px; border-radius: 7px; border: 1px solid #3a4459; background: none; color: #c9d1dd; font-size: 11px; font-weight: 800; }
+  .lclose.sure { border-color: #d9414f; background: #d9414f; color: #fff; }
   .pill { display: inline-block; font-size: 11px; font-weight: 900; padding: 3px 8px; border-radius: 8px; background: #263042; color: #b9c1cf; }
   .pill.pg { background: #1f9e6a; color: #fff; } .pill.pr { background: #d9414f; color: #fff; }
   .orow { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 12px; background: #141a25; border: 1px solid #1c2433; margin-bottom: 6px; }
@@ -1074,7 +1076,8 @@ function robotRows() {
 function renderLive() {
   const el = document.getElementById("live");
   if (!(window.Android && Android.robotStatus)) { el.style.display = "none"; return; }
-  const rs = robotRows(); if (!rs.length) { el.style.display = "none"; return; }
+  const rs0 = robotRows(); if (!rs0.length) { el.style.display = "none"; return; }
+  const rs = []; for (const w of rs0) { const g = rs.find(x => x.id === w.id); if (g) { if (!g.tfs.includes(w.tf)) g.tfs.push(w.tf); if (w.id === cfg.asset && w.tf === cfg.tf) g.tf = w.tf; } else rs.push(Object.assign({}, w, { tfs: [w.tf] })); }
   el.style.display = "";
   const inf = brkInfo(), real = inf.mode === "real", t0 = new Date(); t0.setHours(0, 0, 0, 0);
   const ml = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, ms = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
@@ -1084,16 +1087,19 @@ function renderLive() {
     const a = assets().find(x => x.id === w.id); if (!a) continue;
     const R = robotState(a, w.tf), td = R.trips.filter(t => t.sell.t >= t0.getTime()), pnl = td.reduce((s, t) => s + t.r, 0); tot += pnl;
     let seq = 0; for (const t of td) { if (t.r < 0) seq++; else break; }
-    const paused = (ml > 0 && -pnl >= ml) || (ms > 0 && seq >= ms), cur = w.id === cfg.asset && w.tf === cfg.tf;
+    const paused = (ml > 0 && -pnl >= ml) || (ms > 0 && seq >= ms), cur = w.id === cfg.asset;
     const px = w.id === cfg.asset && data && data.candles.length ? data.candles[data.candles.length - 1].c : livePx[w.id];
     let pill;
+    let nowMoney = "";
     if (R.open) { opens++; const o = R.open, pct = px ? (px / o.price - 1) * 100 : null, up = pct == null || pct >= 0;
       pill = '<span class="pill ' + (up ? "pg" : "pr") + '">COMPRADO ' + (pct == null ? "" : (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%") + '</span>';
+      if (px) { const v = o.qty * px - o.quote; nowMoney = '<small class="' + (v >= 0 ? "up" : "down") + '" style="font-weight:800">' + (v >= 0 ? "lucro " : "perda ") + money(v, a) + (brkQuoteCur(a) === "USDT" ? " USDT" : "") + ' agora</small>'; }
     } else pill = '<span class="pill">' + (w.off ? "DESLIGADO" : paused ? "⏸ PAUSADO" : "FORA") + '</span>';
-    let sub2 = (TFS.find(t => t.id === w.tf) || {}).label + ' · ' + curStrat(w.id, w.tf).name + (w.hit ? ' · 🎯' + w.hit + '%' : '');
+    let sub2 = w.tfs.map(t => (TFS.find(x => x.id === t) || {}).label).join(" + ") + ' · ' + curStrat(w.id, w.tf).name + (w.hit ? ' · 🎯' + w.hit + '%' : '');
     if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · 🛑 ' + fmt(R.open.sl, a) : '');
     const row = '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b><small>' + sub2 + '</small></div>' +
-      '<div class="rt">' + pill + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small></div></div>';
+      '<div class="rt">' + pill + nowMoney + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small>' +
+      (R.open ? '<button class="lclose" data-close="' + w.id + '">✕ Encerrar</button>' : '') + '</div></div>';
     rows += row; if (R.open) openRows += row;
     else chips += '<div class="lchip' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '" title="' + parts(a).t + '">' + logo(a) + '<i class="' + (paused ? "pz" : w.off ? "of" : "") + '"></i></div>';
   }
@@ -1107,6 +1113,11 @@ function renderLive() {
   el.querySelectorAll(".lchip").forEach(c => c.onclick = () => { if (c.dataset.id !== cfg.asset || c.dataset.tf !== cfg.tf) openFrom(c.dataset.id, c.dataset.tf); });
   if (exp) el.insertAdjacentHTML("beforeend", rs.some(w => w.robot) ? '<button class="rbPanic" id="liveOff" style="height:32px;margin-top:6px;border-color:#263042;color:#b9c1cf;background:none">⏹ Desligar todos os robôs</button>' : '');
   const off = document.getElementById("liveOff"); if (off) off.onclick = () => { cfg.watch.forEach(w => { if (w.src === "binance") w.robot = false; }); syncWatch(); renderLive(); toast("Robôs desligados. Posições abertas continuam com alvo e stop na Binance."); };
+  el.querySelectorAll("[data-close]").forEach(b => b.onclick = ev => { ev.stopPropagation(); const id = b.dataset.close, a = assets().find(x => x.id === id);
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirmar?"; b.classList.add("sure"); setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = "✕ Encerrar"; b.classList.remove("sure"); } }, 4000); return; }
+    b.disabled = true; b.textContent = "Vendendo…";
+    brk("sell", id).then(o => { liveLogT = 0; toast(o.none ? "Não tinha " + parts(a).t + " para vender." : "✅ " + parts(a).t + " encerrada manualmente. O robô continua ligado e pode entrar de novo no próximo sinal."); renderLive(); renderHist(); if (data) render(); })
+      .catch(e => { toast("⚠️ " + e.message); renderLive(); }); });
   el.querySelectorAll(".lrow").forEach(r => r.onclick = () => { if (r.dataset.id !== cfg.asset || r.dataset.tf !== cfg.tf) openFrom(r.dataset.id, r.dataset.tf); });
 }
 // preço ao vivo das outras criptos com robô comprado
@@ -1332,7 +1343,9 @@ document.getElementById("brkRobot").onclick = () => {
   const a = curAsset(); if (!a.crypto) return;
   let w = cfg.watch.find(x => x.id === a.id && x.tf === cfg.tf);
   if (!w) { w = { id: a.id, tf: cfg.tf, name: a.name, src: "binance", dec: 2, b3: false }; cfg.watch.push(w); }
-  w.robot = !w.robot; syncWatch(); renderRobot();
+  w.robot = !w.robot;
+  if (w.robot) cfg.watch.forEach(x => { if (x !== w && x.id === w.id && x.robot) x.robot = false; }); // um robô por cripto (o saldo da moeda é um só)
+  syncWatch(); renderRobot();
   brkMsg(w.robot ? "🤖 Robô ligado em " + parts(a).t + " · " + curTf().label + ". Ele entra e sai sozinho, mesmo com o app fechado." : "Robô desligado.");
 };
 
@@ -1595,7 +1608,8 @@ function applyTop() {
   for (const r of pick) { const k = r.a.id + "|" + r.tf.id; cfg.strat[k] = r.st.id; cfg.exitBy[k] = r.ex;
     let w = cfg.watch.find(x => x.id === r.a.id && x.tf === r.tf.id);
     if (!w) { w = { id: r.a.id, tf: r.tf.id, name: r.a.name, src: "binance", dec: 2, b3: false, cur: /USDT$/.test(r.a.id) ? "" : "R$ ", auto: true }; cfg.watch.push(w); }
-    w.robot = true; w.hit = hit(r); }
+    w.robot = true; w.hit = hit(r);
+    cfg.watch.forEach(x => { if (x !== w && x.id === w.id && x.robot) x.robot = false; }); }
   if ((cfg.robotMaxOpen || 10) < pick.length) cfg.robotMaxOpen = pick.length;
   syncWatch();
   const val = cfg.robotQuote || 50;
@@ -1867,6 +1881,7 @@ setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && (a
 if (!cfg.top10) { cfg.robotTopN = 10; if (cfg.robotMaxOpen != null && cfg.robotMaxOpen < 10) cfg.robotMaxOpen = 10; cfg.top10 = true; store.set("cfg", cfg); }
 if (binanceOnly() && !curAsset().crypto) { cfg.asset = "BTCUSDT"; store.set("cfg", cfg); }
 loadCustom(); pullWatch(); setTimeout(renderHist, 500);
+{ const seen = new Set(); let ch = false; for (const w of cfg.watch.filter(x => x.robot).sort((x, y) => (y.id === cfg.asset && y.tf === cfg.tf) - (x.id === cfg.asset && x.tf === cfg.tf))) { if (seen.has(w.id)) { w.robot = false; ch = true; } else seen.add(w.id); } if (ch) store.set("cfg", cfg); }
 buildUi(); sizeCanvas(); draw(); refresh(); if (cfg.watch.length) syncWatch(); syncScan(); syncTurnos();
 window.app = { analyze, backtest, candlePattern, refresh, get data() { return data; }, get an() { return an; } };
 </script>

@@ -116,7 +116,8 @@ object Turnos {
             if (w == null) { w = JSONObject(tpl.toString()).put("id", p.optString("id")).put("tf", p.optString("tf")).put("name", p.optString("name")).put("src", "binance")
                 .put("dec", 2).put("b3", false).put("auto", true).put("cur", if (p.optString("id").endsWith("USDT")) "" else "R$ "); out.put(w) }
             val st = p.optJSONObject("st") ?: JSONObject()
-            w.put("robot", true).put("strat", st).put("stratName", st.optString("name")).put("exit", p.optString("exit")).put("short", false).put("hit", p.optInt("hit")) }
+            w.put("robot", true).put("strat", st).put("stratName", st.optString("name")).put("exit", p.optString("exit")).put("short", false).put("hit", p.optInt("hit"))
+            for (i in 0 until out.length()) { val x = out.getJSONObject(i); if (x !== w && x.optString("id") == p.optString("id")) x.put("robot", false) } }
         vp.edit().putString("list", out.toString()).putLong("changed", System.currentTimeMillis()).apply()
     }
 }
