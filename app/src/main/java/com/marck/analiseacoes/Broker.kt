@@ -223,7 +223,7 @@ object Broker {
 
     fun log(ctx: Context, o: JSONObject) {
         val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray())
-        val n = JSONArray().put(o); for (i in 0 until minOf(a.length(), 49)) n.put(a.get(i))
+        val n = JSONArray().put(o); for (i in 0 until minOf(a.length(), 1999)) n.put(a.get(i))
         sp(ctx).edit().putString("log", n.toString()).apply()
     }
 
