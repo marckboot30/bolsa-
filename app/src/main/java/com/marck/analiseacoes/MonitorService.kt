@@ -252,7 +252,7 @@ class MonitorService : Service() {
     private fun trail(w: Watch, cs: List<Candle>) {
         val p = w.prot; val lockOn = p.optBoolean("lockOn", true); val runOn = p.optBoolean("runOn", true)
         val sl0 = Broker.slot(this, "${w.id}|${w.tf}") ?: return
-        if (!sl0.has("oco")) { if (w.oco) heal(w, sl0, cs); return }
+        if (!sl0.has("oco")) { if (w.oco) runCatching { heal(w, sl0, cs) }.onFailure { Broker.slotPut(this, w.id, w.tf, JSONObject().put("err", it.message ?: it.javaClass.simpleName)) }; return }
         if (!lockOn && !runOn) return
         val q = sl0.optDouble("quote"); val qty = sl0.optDouble("qty"); val pr = sl0.optDouble("price"); if (q <= 0 || qty <= 0 || pr <= 0) return
         val fees = q * 0.002

@@ -88,7 +88,7 @@
   .pgPct { text-align: center; font-size: 46px; font-weight: 900; background: linear-gradient(90deg,#4da3ff,#9b6bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .pgBar { height: 12px; border-radius: 6px; background: #1c2433; overflow: hidden; margin-top: 10px; }
   .pgBar div { height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg,#2b6cff,#9b6bff); transition: width .25s; }
-  .lrow { display: flex; align-items: center; gap: 9px; padding: 7px 4px; border-top: 1px solid #1c2433; }
+  .lrow { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 7px 4px; border-top: 1px solid #1c2433; }
   .lrow:first-of-type { border-top: 0; } .lrow.on { background: #16223a; border-radius: 10px; }
   .lrow .logo { width: 28px; height: 28px; font-size: 9px; }
   .lrow .tx { flex: 1; min-width: 0; } .lrow .tx b { font-size: 14px; }
@@ -1191,10 +1191,12 @@ function renderLive() {
     } else pill = '<span class="pill">' + (w.off ? "DESLIGADO" : paused ? "⏸ PAUSADO" : "FORA") + '</span>';
     const tfl = (TFS.find(x => x.id === w.tf) || {}).label || w.tf;
     let sub2 = curStrat(w.id, w.tf).name + (w.hit ? ' · 🎯' + w.hit + '%' : '');
-    if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · ' + (R.open.sl > R.open.price ? '🔒 ' : '🛑 ') + fmt(R.open.sl, a) + (R.open.ph >= 2 ? ' 🚀' : '') : '') + (R.open.noStop ? ' · <b class="down">⚠️ sem stop na Binance' + (R.open.err ? ': ' + R.open.err : ' (tentando colocar)') + '</b>' : '');
+    if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · ' + (R.open.sl > R.open.price ? '🔒 ' : '🛑 ') + fmt(R.open.sl, a) + (R.open.ph >= 2 ? ' 🚀' : '') : '');
+    const warn = R.open && R.open.noStop ? '<div style="flex-basis:100%;font-size:12px;color:#ff8a98;background:rgba(255,84,104,.1);border-radius:8px;padding:6px 8px;margin-top:6px">⚠️ <b>Sem alvo/stop na Binance.</b> ' +
+      (cfg.robotOco === false ? 'A opção <b>"Alvo e stop direto na Binance"</b> está <b>desligada</b> na 🛡 Proteção. Ligue para o robô proteger as operações.' : R.open.err ? 'A Binance respondeu: <b>' + R.open.err + '</b>' : 'Tentando colocar a cada 30 s… (nenhuma resposta de erro ainda)') + '</div>' : '';
     const row = '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b> <span class="tag">' + tfl + '</span><small>' + sub2 + '</small></div>' +
       '<div class="rt">' + pill + nowMoney + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small>' +
-      (R.open ? '<div class="lbtns">' + (R.open.tf ? '<button class="lclose" data-adj="' + w.id + '|' + R.open.tf + '">⚙ Ajustar</button>' : '') + '<button class="lclose" data-close="' + w.id + '|' + (R.open.tf || "") + '">✕ Encerrar</button></div>' : '') + '</div></div>' +
+      (R.open ? '<div class="lbtns">' + (R.open.tf ? '<button class="lclose" data-adj="' + w.id + '|' + R.open.tf + '">⚙ Ajustar</button>' : '') + '<button class="lclose" data-close="' + w.id + '|' + (R.open.tf || "") + '">✕ Encerrar</button></div>' : '') + '</div>' + warn + '</div>' +
       (R.open && liveAdj === w.id + "|" + R.open.tf ? adjBox(a, R.open) : '');
     rows += row; if (R.open) openRows += row;
     else chips += '<div class="lchip' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '" title="' + parts(a).t + '">' + logo(a) + '<i class="' + (paused ? "pz" : w.off ? "of" : "") + '"></i></div>';
