@@ -75,6 +75,8 @@
   .star.fav { color: #ffd166; }
   .gh { font-size: 12px; font-weight: 800; color: #8a94a6; text-transform: uppercase; letter-spacing: .5px; margin: 12px 8px 4px; }
   .hidden { display: none !important; }
+  .cdown { flex: none; font-size: 13px; font-weight: 800; color: #e6e9ef; background: #1c2433; border: 1px solid #263042; border-radius: 9px; padding: 4px 9px; font-variant-numeric: tabular-nums; }
+  .cdown.soon { background: #3a2a12; border-color: #ffc531; color: #ffd166; }
   #updBar { margin: 6px 10px 0; padding: 10px 12px; border-radius: 14px; background: linear-gradient(90deg,rgba(43,108,255,.22),rgba(155,107,255,.22)); border: 1px solid #2b6cff; display: flex; align-items: center; gap: 10px; }
   #updBar .tx { flex: 1; font-size: 13px; } #updBar b { font-size: 14px; }
   #updBar button { height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: #2b6cff; color: #fff; font-weight: 800; font-size: 14px; }
@@ -172,7 +174,7 @@
 <div style="padding:0 12px 8px"><div id="updBar" class="hidden" style="margin:0 12px 8px"></div>
 <button class="primary" id="optOpen" style="margin:0;height:44px;background:linear-gradient(90deg,#2b6cff,#8a4dff)">🔬 Descobrir a melhor estratégia</button></div>
 <div class="price"><b id="last">—</b><span id="chg" class="mut"></span><span id="liveTag" class="live" style="margin-left:auto"><span class="dot"></span><span id="liveTxt">—</span></span></div>
-<div class="status" id="asof" style="text-align:right;padding-bottom:4px"></div>
+<div class="status" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:4px"><span id="cdown" class="cdown hidden"></span><span id="asof" style="text-align:right;flex:1"></span></div>
 <div id="chartWrap">
   <canvas id="chart"></canvas>
   <div class="zoom"><button id="zOut">−</button><button id="zIn">+</button></div>
@@ -1428,6 +1430,20 @@ function syncWatch() {
   if (window.Android && Android.setWatch) Android.setWatch(JSON.stringify(list));
   renderWatch(); syncTurnos();
 }
+// ================= RELÓGIO DO CANDLE =================
+function tickCountdown() {
+  const el = document.getElementById("cdown"), a = curAsset(), tf = curTf();
+  if (!data || !data.candles.length || !tf.intraday || !(a.crypto || marketOpen(a))) { el.classList.add("hidden"); return; }
+  // fim do candle atual, alinhado com os candles do gráfico (mesmo se o último ainda não chegou)
+  const last = data.candles[data.candles.length - 1], per = tf.min * 60, nowS = Date.now() / 1000;
+  const end = (last.t + Math.max(1, Math.ceil((nowS - last.t) / per)) * per) * 1000; let left = Math.round((end - Date.now()) / 1000);
+  if (left < 0) left = 0;
+  const h = Math.floor(left / 3600), m = Math.floor(left % 3600 / 60), sec = left % 60, p2 = v => String(v).padStart(2, "0");
+  const at = new Date(end).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  el.textContent = "⏱ " + (h ? h + ":" + p2(m) : p2(m)) + ":" + p2(sec) + (left ? " · fecha às " + at : " · fechando…");
+  el.classList.toggle("soon", left <= 30); el.classList.remove("hidden");
+}
+setInterval(tickCountdown, 1000);
 // ================= ATUALIZAÇÃO DO APP =================
 let updInfo = null, updManual = false;
 function showUpd(html) { const b = document.getElementById("updBar"); b.innerHTML = html; b.classList.remove("hidden"); }
