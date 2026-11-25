@@ -11,8 +11,8 @@ android {
         applicationId = "com.marck.analiseacoes"
         minSdk = 26
         targetSdk = 35
-        versionCode = 28
-        versionName = "1.27"
+        versionCode = 29
+        versionName = "1.28"
     }
 
     // Assinatura fixa: as próximas versões instalam por cima

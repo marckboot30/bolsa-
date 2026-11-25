@@ -77,6 +77,38 @@ object Strategies {
         return dir
     }
 
+    // ---------- estratégias criadas pelo usuário ----------
+    private fun condArr(cs: List<Candle>, c: JSONObject, E: HashMap<Int, DoubleArray>, R: DoubleArray): BooleanArray {
+        val n = cs.size; val C = DoubleArray(n) { cs[it].c }; val out = BooleanArray(n)
+        fun e(k: Int) = E.getOrPut(k) { ema(C, k) }
+        val k = c.optString("k"); val N = c.optInt("n", 9); val M = c.optInt("m", 21); val V = c.optDouble("v", 30.0); val P = c.optString("p", "EA")
+        for (i in 1 until n) { val x = cs[i]
+            out[i] = when (k) {
+                "close_above_ma" -> { val a = e(N); !a[i].isNaN() && !a[i - 1].isNaN() && C[i] > a[i] && C[i - 1] <= a[i - 1] }
+                "close_below_ma" -> { val a = e(N); !a[i].isNaN() && !a[i - 1].isNaN() && C[i] < a[i] && C[i - 1] >= a[i - 1] }
+                "touch_up" -> { val a = e(N); !a[i].isNaN() && x.l <= a[i] && x.c > a[i] && x.c > x.o }
+                "touch_down" -> { val a = e(N); !a[i].isNaN() && x.h >= a[i] && x.c < a[i] && x.c < x.o }
+                "above_ma" -> { val a = e(N); !a[i].isNaN() && x.c > a[i] }
+                "below_ma" -> { val a = e(N); !a[i].isNaN() && x.c < a[i] }
+                "ma_up", "ma_down" -> { val a = e(N); val b = e(M)
+                    if (a[i].isNaN() || b[i].isNaN() || a[i - 1].isNaN() || b[i - 1].isNaN()) false
+                    else if (k == "ma_up") a[i] > b[i] && a[i - 1] <= b[i - 1] else a[i] < b[i] && a[i - 1] >= b[i - 1] }
+                "rsi_lt" -> !R[i].isNaN() && R[i] < V
+                "rsi_gt" -> !R[i].isNaN() && R[i] > V
+                "bull" -> x.c > x.o
+                "bear" -> x.c < x.o
+                "pat" -> pattern(cs, i) == P
+                else -> false
+            } }
+        return out
+    }
+
+    private fun ruleArr(cs: List<Candle>, list: org.json.JSONArray?, E: HashMap<Int, DoubleArray>, R: DoubleArray): BooleanArray {
+        val n = cs.size; if (list == null || list.length() == 0) return BooleanArray(n)
+        val arrs = (0 until list.length()).map { condArr(cs, list.getJSONObject(it), E, R) }
+        return BooleanArray(n) { i -> arrs.all { it[i] } }
+    }
+
     /** Padrão do candle i: "EA", "EB", "M", "EC" ou "". */
     fun pattern(cs: List<Candle>, i: Int): String {
         val c = cs[i]; val p = if (i > 0) cs[i - 1] else null
@@ -143,6 +175,11 @@ object Strategies {
                     val okUp = type == "eng0" || (!e50[i].isNaN() && c[i] > e50[i]); val okDn = type == "eng0" || (!e50[i].isNaN() && c[i] < e50[i])
                     if (type == "ham") { if (p == "M" && okUp) d[i] = 1 else if (p == "EC" && okDn) d[i] = -1 }
                     else { if (p == "EA" && okUp) d[i] = 1 else if (p == "EB" && okDn) d[i] = -1 } }
+            }
+            "custom" -> {
+                val E = HashMap<Int, DoubleArray>(); val R = rsi(c, 14)
+                val B = ruleArr(cs, st.optJSONArray("buy"), E, R); val S = ruleArr(cs, st.optJSONArray("sell"), E, R)
+                for (i in 1 until n) { val b = B[i] && !B[i - 1]; val v = S[i] && !S[i - 1]; if (b && !v) d[i] = 1 else if (v && !b) d[i] = -1 }
             }
             "fib" -> {
                 val e21 = ema(c, 21); val e50 = ema(c, 50); val N = st.optInt("n", 30); val fa = st.optDouble("a", .5); val fb = st.optDouble("b", .618); val pat = st.optBoolean("pat", false)

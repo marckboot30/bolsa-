@@ -132,6 +132,17 @@
   .hrow small { display: block; color: #8a94a6; font-size: 11px; } .hrow .rt { text-align: right; }
   .hlogo .logo { width: 24px; height: 24px; font-size: 8px; }
   .hsec { font-size: 11px; font-weight: 800; color: #8a94a6; text-transform: uppercase; letter-spacing: .5px; margin: 12px 0 2px; }
+  #bld { background: rgba(5,8,14,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); align-items: stretch; }
+  #bld .box { height: 100%; max-height: 100vh; border-radius: 0; background: rgba(16,21,31,.92); padding-top: 14px; }
+  .bldIn, .bldRow select, .bldRow input { width: 100%; height: 40px; border-radius: 10px; border: 1px solid #263042; background: #0b0e14; padding: 0 10px; font-size: 14px; color: #e6e9ef; }
+  .bldSec { margin-top: 12px; padding: 10px; border-radius: 12px; border: 1px solid #1c2433; } .bldSec.buy { border-color: rgba(38,194,129,.4); } .bldSec.sell { border-color: rgba(255,84,104,.35); }
+  .bldSec > b { font-size: 13px; } .bldAdd { height: 32px; margin-top: 8px; font-size: 13px; }
+  #bld .bldRow { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+  #bld .bldRow select { flex: 1 1 auto !important; width: auto !important; min-width: 0 !important; height: 40px !important; }
+  #bld .bldRow select[data-f="p"] { flex: 0 0 110px !important; }
+  #bld .bldRow input { flex: 0 0 58px !important; width: 58px !important; min-width: 0 !important; height: 40px !important; text-align: center; padding: 0 4px !important; }
+  .bldRow .x { flex: none; width: 34px; height: 34px; border-radius: 10px; border: 1px solid #263042; background: none; color: #ff8a95; font-size: 15px; }
+  .cst { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid #1c2433; font-size: 13px; } .cst .tx { flex: 1; min-width: 0; } .cst small { display: block; color: #8a94a6; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rbPanic { width: 100%; height: 38px; margin-top: 8px; border-radius: 10px; border: 1px solid #d9414f; background: rgba(217,65,79,.08); color: #ff8a95; font-size: 13px; font-weight: 800; }
   .sw input { width: 22px; height: 22px; }
   .primary { width: 100%; height: 48px; margin-top: 18px; border-radius: 12px; border: none; background: #2b6cff; color: #fff; font-weight: 800; font-size: 16px; }
@@ -223,7 +234,8 @@
     <p id="pgSub" class="mut" style="text-align:center;font-size:12px;margin:0"></p>
   </div>
   <div id="optForm">
-  <p class="mut" style="margin:0;font-size:13px">Testa ${n} análises × 3 saídas em cada tempo gráfico, já descontando as taxas.</p>
+  <p class="mut" style="margin:0;font-size:13px">Testa <span id="optN">todas as</span> análises × 3 saídas em cada tempo gráfico, já descontando as taxas.</p>
+  <div class="card" style="margin:10px 0 0;padding:10px"><div class="row" style="align-items:center"><b style="font-size:14px">🛠 Minhas estratégias</b><button class="chip" id="cstNew" style="height:32px">＋ Criar</button></div><div id="cstList"></div></div>
   <label>O que analisar</label><select id="optAsset" class="sel" style="width:100%"></select>
   <label>Período da análise</label>
   <div class="tf" id="optDays" style="padding:0"></div>
@@ -251,6 +263,15 @@
   <div style="display:flex;gap:8px"><div style="flex:1"><label>Banca</label><input type="number" id="repBank" min="1"></div><div style="flex:1"><label>Meta por dia (%)</label><input type="number" id="repGoal" min="1"></div></div>
   <button class="primary" id="repRun" style="margin-top:12px">▶ Rodar agora</button>
   <div id="repOut" style="margin-top:10px"></div>
+</div></div>
+<div class="sheet" id="bld"><div class="box">
+  <div class="optTop"><h2 style="margin:0;flex:1">🛠 Criar estratégia</h2><button class="iconbtn" id="bldClose">✕</button></div>
+  <label>Nome</label><input type="text" id="bldName" class="bldIn" placeholder="Ex.: Toque na média 9" maxlength="40">
+  <div class="bldSec buy"><b>🟢 COMPRAR quando (todas juntas)</b><div id="bldBuy"></div><button class="chip bldAdd" data-side="buy">＋ Condição</button></div>
+  <div class="bldSec sell"><b>🔴 VENDER / SAIR quando (todas juntas)</b><div id="bldSell"></div><button class="chip bldAdd" data-side="sell">＋ Condição</button>
+    <p class="mut" style="font-size:11px;margin:6px 0 0">Na Binance o robô só compra: o sinal de venda serve para sair. Pode deixar vazio e usar só o alvo/stop.</p></div>
+  <div class="rbBtns" style="margin-top:12px"><button class="chip" id="bldTest">📊 Testar em <span id="bldAsset"></span></button><button class="chip on" id="bldSave" style="flex:1.4">💾 Salvar</button></div>
+  <div id="bldOut"></div>
 </div></div>
 <div class="sheet" id="pick"><div class="box">
   <div class="top"><h2>Escolher ativo</h2><button class="iconbtn" id="pickClose">✕</button></div>
@@ -483,6 +504,7 @@ const store = {
 };
 const cfg = Object.assign({ asset: "^BVSP", tf: "5m", fast: 9, slow: 21, alert: true, brk: true, auto: true, extra: [], watch: [], strat: {}, goalOn: true, goalCap: 150, goalPct: 30 }, store.get("cfg", {}));
 // ================= O QUE MOSTRAR (menu ⋮) =================
+function loadCustom() { for (let i = STRATS.length - 1; i >= 0; i--) if (STRATS[i].type === "custom") STRATS.splice(i, 1); STRATS.push(...customStrats()); }
 const VIEW_CHART = [["medias", "Médias móveis", true], ["dayhl", "Máxima e mínima do dia", true], ["prevhl", "Máxima e mínima de ontem", true], ["fh", "Linhas da 1ª hora", true],
   ["pats", "Padrões de candle (EA, EB, M, EC)", false], ["ops", "Entradas e saídas da análise (▲ ▼ ✕)", true], ["robo", "Ordens, alvo e stop do robô", true], ["legend", "Legenda embaixo do gráfico", false]];
 const VIEW_CARDS = [["live", "🤖 Robô ao vivo", true, "live"], ["perf", "Desempenho da análise", true, "perf"], ["sig", "Operação da análise", true, "sigCard"],
@@ -652,6 +674,55 @@ function firstHour(cs, win) {
   }
   return { fh: out, e21 };
 }
+// ================= ESTRATÉGIAS PERSONALIZADAS =================
+const CONDS = {
+  close_above_ma: { t: "Fechou ACIMA da média (cruzou para cima)", f: ["n"] },
+  close_below_ma: { t: "Fechou ABAIXO da média (cruzou para baixo)", f: ["n"] },
+  touch_up: { t: "Tocou na média e voltou para CIMA", f: ["n"] },
+  touch_down: { t: "Tocou na média e voltou para BAIXO", f: ["n"] },
+  above_ma: { t: "Preço está acima da média", f: ["n"] },
+  below_ma: { t: "Preço está abaixo da média", f: ["n"] },
+  ma_up: { t: "Média rápida cruzou a lenta para CIMA", f: ["n", "m"] },
+  ma_down: { t: "Média rápida cruzou a lenta para BAIXO", f: ["n", "m"] },
+  rsi_lt: { t: "IFR (14) abaixo de", f: ["v"] },
+  rsi_gt: { t: "IFR (14) acima de", f: ["v"] },
+  bull: { t: "Candle de alta (verde)", f: [] },
+  bear: { t: "Candle de baixa (vermelho)", f: [] },
+  pat: { t: "Padrão de candle", f: ["p"] },
+};
+const PATS = { EA: "Engolfo de alta", EB: "Engolfo de baixa", M: "Martelo", EC: "Estrela cadente", D: "Doji" };
+function condText(c) {
+  const d = CONDS[c.k]; if (!d) return "?";
+  if (c.k === "ma_up" || c.k === "ma_down") return d.t + " (" + c.n + " × " + c.m + ")";
+  if (c.k === "rsi_lt" || c.k === "rsi_gt") return d.t + " " + c.v;
+  if (c.k === "pat") return d.t + ": " + (PATS[c.p] || c.p);
+  return d.t.replace("média", "média " + c.n);
+}
+function condArr(cs, c, E, R) {
+  const n = cs.length, C = cs.map(x => x.c), out = new Array(n).fill(false), e = k => E[k] || (E[k] = ema(C, k));
+  for (let i = 1; i < n; i++) { const x = cs[i];
+    switch (c.k) {
+      case "close_above_ma": { const a = e(+c.n); out[i] = a[i] != null && a[i - 1] != null && C[i] > a[i] && C[i - 1] <= a[i - 1]; break; }
+      case "close_below_ma": { const a = e(+c.n); out[i] = a[i] != null && a[i - 1] != null && C[i] < a[i] && C[i - 1] >= a[i - 1]; break; }
+      case "touch_up": { const a = e(+c.n); out[i] = a[i] != null && x.l <= a[i] && x.c > a[i] && x.c > x.o; break; }
+      case "touch_down": { const a = e(+c.n); out[i] = a[i] != null && x.h >= a[i] && x.c < a[i] && x.c < x.o; break; }
+      case "above_ma": { const a = e(+c.n); out[i] = a[i] != null && x.c > a[i]; break; }
+      case "below_ma": { const a = e(+c.n); out[i] = a[i] != null && x.c < a[i]; break; }
+      case "ma_up": case "ma_down": { const a = e(+c.n), b = e(+c.m); if (a[i] == null || b[i] == null || a[i - 1] == null || b[i - 1] == null) break;
+        out[i] = c.k === "ma_up" ? a[i] > b[i] && a[i - 1] <= b[i - 1] : a[i] < b[i] && a[i - 1] >= b[i - 1]; break; }
+      case "rsi_lt": out[i] = R.r[i] != null && R.r[i] < +c.v; break;
+      case "rsi_gt": out[i] = R.r[i] != null && R.r[i] > +c.v; break;
+      case "bull": out[i] = x.c > x.o; break;
+      case "bear": out[i] = x.c < x.o; break;
+      case "pat": { const p = candlePattern(cs, i); out[i] = !!p && p.k === c.p; break; }
+    } }
+  return out;
+}
+function ruleArr(cs, list, E, R) {
+  const n = cs.length; if (!list || !list.length) return new Array(n).fill(false);
+  const arrs = list.map(c => condArr(cs, c, E, R)); return Array.from({ length: n }, (_, i) => arrs.every(a => a[i]));
+}
+function customStrats() { return (cfg.custom || []).map(c => Object.assign({ type: "custom", grp: "🛠 Minhas" }, c)); }
 // direção do sinal em cada candle: 1 compra, -1 venda, 0 nada
 function stratDirs(cs, st) {
   const n = cs.length, d = new Int8Array(n), C = cs.map(c => c.c);
@@ -709,6 +780,9 @@ function stratDirs(cs, st) {
         if (c.l <= top && c.l >= bot - .1 * r && c.c > c.o && c.c > (top + bot) / 2 && (!st.pat || (p && (p.k === "EA" || p.k === "M")))) d[i] = 1; }
       else if (e21[i] < e50[i] && hi < li) { const bot = ll + st.a * r, top = ll + st.b * r;
         if (c.h >= bot && c.h <= top + .1 * r && c.c < c.o && c.c < (top + bot) / 2 && (!st.pat || (p && (p.k === "EB" || p.k === "EC")))) d[i] = -1; } }
+  } else if (st.type === "custom") {
+    const E = {}, R = { r: rsiArr(C, 14) }, B = ruleArr(cs, st.buy, E, R), S = ruleArr(cs, st.sell, E, R);
+    for (let i = 1; i < n; i++) { const b = B[i] && !B[i - 1], v = S[i] && !S[i - 1]; if (b && !v) d[i] = 1; else if (v && !b) d[i] = -1; }
   } else if (st.type === "pb21") {
     const e9 = ema(C, 9), e21 = ema(C, 21), e50 = ema(C, 50);
     for (let i = 1; i < n; i++) { if (e50[i] == null || e50[i - 1] == null) continue; const c = cs[i];
@@ -1321,6 +1395,59 @@ function renderHist() {
 }
 function bindHist() { document.querySelectorAll("#histPer [data-p]").forEach(b => b.onclick = () => { histPeriod = b.dataset.p; renderHist(); }); }
 document.getElementById("histHd").onclick = () => { cfg.histOpen = !cfg.histOpen; store.set("cfg", cfg); renderHist(); };
+// ================= CRIADOR DE ESTRATÉGIAS =================
+let bldDraft = null;
+function renderCst() {
+  const box = document.getElementById("cstList"), L = cfg.custom || [];
+  document.getElementById("optN").textContent = STRATS.length;
+  box.innerHTML = L.length ? L.map(c => '<div class="cst"><div class="tx"><b>' + c.name + '</b><small>🟢 ' + (c.buy.map(condText).join(" + ") || "—") + '</small><small>🔴 ' + (c.sell.map(condText).join(" + ") || "só alvo/stop") + '</small></div>' +
+    '<button class="chip" data-ed="' + c.id + '" style="height:30px;padding:0 10px">✏️</button><button class="chip" data-del="' + c.id + '" style="height:30px;padding:0 10px">🗑</button></div>').join("")
+    : '<p class="mut" style="font-size:12px;margin:6px 0 0">Monte as suas regras (ex.: fechou acima da média 9 → compra). Elas entram na análise junto com as outras e podem ser usadas pelo robô.</p>';
+  box.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => openBld((cfg.custom || []).find(c => c.id === b.dataset.ed)));
+  box.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { if (b.dataset.sure) { cfg.custom = (cfg.custom || []).filter(c => c.id !== b.dataset.del); store.set("cfg", cfg); loadCustom(); renderCst(); syncTurnos(); } else { b.dataset.sure = 1; b.textContent = "Apagar?"; b.style.color = "#ff8a95"; } });
+}
+function condRow(side, c, i) {
+  const opts = Object.entries(CONDS).map(([k, d]) => '<option value="' + k + '"' + (k === c.k ? " selected" : "") + '>' + d.t + '</option>').join("");
+  const f = CONDS[c.k].f; let extra = "";
+  if (f.includes("n")) extra += '<input type="number" min="2" max="400" data-f="n" value="' + (c.n || 9) + '" title="média">';
+  if (f.includes("m")) extra += '<input type="number" min="2" max="400" data-f="m" value="' + (c.m || 21) + '" title="média lenta">';
+  if (f.includes("v")) extra += '<input type="number" min="1" max="99" data-f="v" value="' + (c.v || 30) + '">';
+  if (f.includes("p")) extra += '<select data-f="p" style="flex:.8">' + Object.entries(PATS).map(([k, l]) => '<option value="' + k + '"' + (k === c.p ? " selected" : "") + '>' + l + '</option>').join("") + '</select>';
+  return '<div class="bldRow" data-side="' + side + '" data-i="' + i + '"><select data-f="k">' + opts + '</select>' + extra + '<button class="x" data-rm="1">✕</button></div>';
+}
+function renderBld() {
+  for (const side of ["buy", "sell"]) { const box = document.getElementById(side === "buy" ? "bldBuy" : "bldSell");
+    box.innerHTML = bldDraft[side].map((c, i) => condRow(side, c, i)).join("") || '<p class="mut" style="font-size:12px;margin:6px 0 0">Nenhuma condição.</p>'; }
+  document.querySelectorAll("#bld .bldRow").forEach(r => { const side = r.dataset.side, i = +r.dataset.i, c = bldDraft[side][i];
+    r.querySelectorAll("[data-f]").forEach(el => el.onchange = () => { const f = el.dataset.f; c[f] = f === "k" || f === "p" ? el.value : +el.value;
+      if (f === "k") { const d = CONDS[c.k].f; if (d.includes("n") && !c.n) c.n = 9; if (d.includes("m") && !c.m) c.m = 21; if (d.includes("v") && !c.v) c.v = c.k === "rsi_lt" ? 30 : 70; if (d.includes("p") && !c.p) c.p = "EA"; renderBld(); } });
+    r.querySelector("[data-rm]").onclick = () => { bldDraft[side].splice(i, 1); renderBld(); }; });
+  document.getElementById("bldAsset").textContent = parts(curAsset()).t + " · " + curTf().label;
+}
+function openBld(c) {
+  bldDraft = c ? JSON.parse(JSON.stringify(c)) : { id: "c" + Date.now().toString(36), name: "", buy: [{ k: "close_above_ma", n: 9 }], sell: [{ k: "close_below_ma", n: 9 }] };
+  document.getElementById("bldName").value = bldDraft.name; document.getElementById("bldOut").innerHTML = "";
+  renderBld(); document.getElementById("bld").classList.add("open");
+}
+document.querySelectorAll(".bldAdd").forEach(b => b.onclick = () => { bldDraft[b.dataset.side].push(b.dataset.side === "buy" ? { k: "above_ma", n: 21 } : { k: "close_below_ma", n: 9 }); renderBld(); });
+document.getElementById("cstNew").onclick = () => openBld(null);
+document.getElementById("bldClose").onclick = () => document.getElementById("bld").classList.remove("open");
+document.getElementById("bldTest").onclick = () => {
+  const out = document.getElementById("bldOut"); if (!data) { out.innerHTML = '<p class="down">Espere o gráfico carregar.</p>'; return; }
+  if (!bldDraft.buy.length) { out.innerHTML = '<p class="down">Coloque pelo menos uma condição de compra.</p>'; return; }
+  const a = curAsset(), tf = curTf(), cs = data.candles, st = Object.assign({ type: "custom" }, bldDraft), dd = stratDirs(cs, st);
+  out.innerHTML = '<div class="hsum" style="margin-top:12px">' + [["auto", "sua saída"], ["atr", "alvo curto"], ["atr2", "alvo longo"]].map(([ex, l]) => {
+    const o = btOpts(a, tf); o.exit = ex === "auto" ? curExit(a.id, tf.id) : ex; o.P = exitPrep(cs); const r = simulate(cs, dd, 1, cs.length, o), e = r.ev.filter(x => x.type === "exit"), w = e.filter(x => x.r > 0).length;
+    return '<div><b class="' + (r.sum >= 0 ? "up" : "down") + '">' + (r.sum >= 0 ? "+" : "") + (a.futures ? Math.round(r.sum) + " pts" : r.sum.toFixed(1) + "%") + '</b><span>' + l + '<br>' + e.length + ' op. · ' + (e.length ? Math.round(w / e.length * 100) : 0) + '%</span></div>'; }).join("") + '</div>' +
+    '<p class="mut" style="font-size:11px">Teste rápido nos candles do gráfico (' + Math.round((cs[cs.length - 1].t - cs[0].t) / 86400) + ' dias, já com taxas). Para comparar com as outras, salve e use o 🔬 Analisar.</p>';
+};
+document.getElementById("bldSave").onclick = () => {
+  bldDraft.name = (document.getElementById("bldName").value || "").trim() || "Minha estratégia " + ((cfg.custom || []).length + 1);
+  if (!bldDraft.buy.length) { document.getElementById("bldOut").innerHTML = '<p class="down">Coloque pelo menos uma condição de compra.</p>'; return; }
+  cfg.custom = (cfg.custom || []).filter(c => c.id !== bldDraft.id).concat([bldDraft]); store.set("cfg", cfg); loadCustom(); renderCst(); syncTurnos();
+  if (cfg.watch.length) syncWatch();
+  document.getElementById("bld").classList.remove("open"); toast("💾 Estratégia \"" + bldDraft.name + "\" salva");
+};
 // ================= TURNOS AUTOMÁTICOS =================
 function syncTurnos() {
   if (!(window.Android && Android.setTurnos)) return;
@@ -1373,6 +1500,7 @@ document.getElementById("batteryBtn").onclick = () => { if (window.Android && An
 const optSheet = document.getElementById("opt"), optOut = document.getElementById("optOut");
 document.querySelector("#opt p").textContent = document.querySelector("#opt p").textContent.replace("${n}", STRATS.length);
 document.getElementById("optOpen").onclick = () => {
+  renderCst();
   const sel = document.getElementById("optAsset"); sel.innerHTML = "";
   const all = document.createElement("option"); all.value = ALL; all.textContent = "⭐ Todas as criptos (" + optCoins().length + ")"; sel.appendChild(all);
   fillAssets(sel);
@@ -1738,7 +1866,7 @@ setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && !a
 setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && (a.crypto || !marketOpen(a))) refresh(true); }, 120000);
 if (!cfg.top10) { cfg.robotTopN = 10; if (cfg.robotMaxOpen != null && cfg.robotMaxOpen < 10) cfg.robotMaxOpen = 10; cfg.top10 = true; store.set("cfg", cfg); }
 if (binanceOnly() && !curAsset().crypto) { cfg.asset = "BTCUSDT"; store.set("cfg", cfg); }
-pullWatch(); setTimeout(renderHist, 500);
+loadCustom(); pullWatch(); setTimeout(renderHist, 500);
 buildUi(); sizeCanvas(); draw(); refresh(); if (cfg.watch.length) syncWatch(); syncScan(); syncTurnos();
 window.app = { analyze, backtest, candlePattern, refresh, get data() { return data; }, get an() { return an; } };
 </script>
