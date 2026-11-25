@@ -148,6 +148,11 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun scanHistory(): String = Scanner.history(this@MainActivity)
 
+        @JavascriptInterface
+        fun scanHistAdd(json: String, label: String, picked: String) {
+            runCatching { Scanner.saveHist(this@MainActivity, org.json.JSONObject(json), label, org.json.JSONArray(picked)) }
+        }
+
         /** Roda o relatório agora; avisa o andamento em window.onScan(fim, base64) */
         @JavascriptInterface
         fun scanNow() {

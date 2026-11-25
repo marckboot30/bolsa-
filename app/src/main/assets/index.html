@@ -1776,9 +1776,21 @@ document.getElementById("optRun").onclick = async () => {
         setTimeout(() => document.getElementById("live").scrollIntoView({ behavior: "smooth", block: "center" }), 300); }
       else optOut.insertAdjacentHTML("afterbegin", r.html);
     }
+    saveOptHist(all);
   } finally { btn.disabled = false; document.getElementById("optProg").classList.add("hidden"); document.getElementById("optForm").classList.remove("hidden"); }
 };
 let optAll = false;
+// guarda o resultado do "Descobrir a melhor estratégia" no histórico das análises (🔬)
+function saveOptHist(all) {
+  if (!(window.Android && Android.scanHistAdd) || !optResults.length) return;
+  const D = optDays, rows = optResults.filter(r => r.per[D] && r.per[D].n >= 1);
+  const items = rows.filter(r => r.per[D].sum > 0).map(r => { const p = r.per[D], days = Math.max(1, r.days[D]);
+    return { id: r.a.id, name: parts(r.a).t, hit: Math.round(p.wins / Math.max(1, p.n) * 100), sum: p.sum, stratName: r.st.name, strat: r.st.id, tf: r.tf.id, exit: r.ex, n: p.n, days, perDay: p.sum / days, pf: p.pf }; })
+    .sort((x, y) => y.perDay - x.perDay).slice(0, 30);
+  const picked = all ? cfg.watch.filter(w => w.robot && w.src === "binance").map(w => w.id + "|" + w.tf + "|" + ((cfg.strat || {})[w.id + "|" + w.tf] || "")) : [];
+  try { Android.scanHistAdd(JSON.stringify({ t: Date.now(), tested: rows.length, found: rows.filter(r => r.per[D].sum > 0).length, minHit: 75, items }),
+    "Descobrir a melhor estratégia · " + (all ? "todas as criptos" : parts(optAsset).t) + " · " + D + " dias", JSON.stringify(picked)); } catch (e) {}
+}
 const opd = r => r.per[optDays].n / Math.max(1, r.days[optDays]);
 const fpd = r => { const v = opd(r); return v >= 10 ? Math.round(v) : v.toFixed(1).replace(".", ","); };
 document.getElementById("optClose").onclick = () => optSheet.classList.remove("open");
@@ -1959,9 +1971,9 @@ function renderRep(rep) {
 }
 function repHistRender(sel) {
   let hs = []; try { hs = JSON.parse(Android.scanHistory ? Android.scanHistory() : "[]"); } catch (e) {}
-  if (!hs.length) { let rep = null; try { rep = JSON.parse(Android.scanReport()); } catch (e) {} document.getElementById("repHist").innerHTML = '<span class="mut" style="font-size:12px">As próximas análises (11h, 23h e o relatório do dia) ficam guardadas aqui.</span>'; renderRep(rep); return; }
+  if (!hs.length) { let rep = null; try { rep = JSON.parse(Android.scanReport()); } catch (e) {} document.getElementById("repHist").innerHTML = '<span class="mut" style="font-size:12px">As próximas análises (11h, 23h, o relatório do dia e o 🔬 Descobrir a melhor estratégia) ficam guardadas aqui.</span>'; renderRep(rep); return; }
   document.getElementById("repHist").innerHTML = hs.map((h, i) => '<button class="chip' + (i === sel ? ' on' : '') + '" data-rh="' + i + '" style="flex:none;padding:4px 10px;font-size:12px;line-height:1.2' + (i === sel ? ';background:#2b6cff;color:#fff' : '') + '">' +
-    (/turno/.test(h.label) ? (/13h/.test(h.label) ? '☀️ ' : '🌙 ') : '📊 ') + new Date(h.t).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) + '<br><small>' + (h.picked && h.picked.length ? h.picked.length + ' escolhidas' : h.found + ' deram lucro') + '</small></button>').join("");
+    (/turno/.test(h.label) ? (/13h/.test(h.label) ? '☀️ ' : '🌙 ') : /Descobrir/.test(h.label) ? '🔬 ' : '📊 ') + new Date(h.t).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) + '<br><small>' + (h.picked && h.picked.length ? h.picked.length + ' escolhidas' : h.found + ' deram lucro') + '</small></button>').join("");
   document.querySelectorAll("[data-rh]").forEach(b => b.onclick = () => repHistRender(+b.dataset.rh));
   renderRep(hs[sel]);
 }
