@@ -169,7 +169,7 @@
       <div class="rbRow"><label for="brkMaxLoss">Perda máxima por dia</label><input type="number" id="brkMaxLoss" min="0" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxLosses">Parar após perdas seguidas</label><input type="number" id="brkMaxLosses" min="0" max="20" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxLossAll">Perda máxima do dia (todos os robôs)</label><input type="number" id="brkMaxLossAll" min="0" step="1" class="sm"></div>
-      <div class="rbRow"><label for="brkMaxOpen">Máx. robôs comprados ao mesmo tempo</label><input type="number" id="brkMaxOpen" min="0" max="6" step="1" class="sm"></div>
+      <div class="rbRow"><label for="brkMaxOpen">Máx. robôs comprados ao mesmo tempo</label><input type="number" id="brkMaxOpen" min="0" max="10" step="1" class="sm"></div>
       <p class="mut" style="font-size:11px;margin:4px 0 0">As duas primeiras valem por cripto; as duas últimas somam todos os robôs. Ao bater um limite, para de comprar até amanhã. 0 desliga.</p>
     </details>
     <details class="rbSec" id="brkKeys"><summary>🔑 Chave da API deste modo</summary>
@@ -1158,7 +1158,7 @@ function renderRobot() {
     : m === "testnet" ? "Crie em testnet.binance.vision (entra com a conta do GitHub)."
     : "Na Binance, entre em <b>Demo Trading</b> (demo.binance.com) → Gerenciamento de API → Criar chave. O dinheiro lá é de mentira.";
   const cur = brkQuoteCur(a); document.getElementById("brkQuote").value = cfg.robotQuote || 50;
-  document.getElementById("brkMaxLossAll").value = cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30; document.getElementById("brkMaxOpen").value = cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 5;
+  document.getElementById("brkMaxLossAll").value = cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30; document.getElementById("brkMaxOpen").value = cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10;
   document.querySelector('label[for="brkMaxLossAll"]').textContent = "Perda máxima do dia (todos)" + (cur ? " (" + cur + ")" : "");
   document.getElementById("brkOco").checked = cfg.robotOco !== false; document.getElementById("brkMaxLoss").value = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10; document.getElementById("brkMaxLosses").value = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
   document.querySelector('label[for="brkMaxLoss"]').textContent = "Perda máxima por dia" + (cur ? " (" + cur + ")" : "");
@@ -1205,7 +1205,7 @@ document.getElementById("brkQuote").onchange = e => { const v = +e.target.value;
 document.getElementById("brkOco").onchange = e => { cfg.robotOco = e.target.checked; syncWatch(); };
 document.getElementById("brkMaxLoss").onchange = e => { cfg.robotMaxLoss = Math.max(0, +e.target.value || 0); syncWatch(); };
 document.getElementById("brkMaxLossAll").onchange = e => { cfg.robotMaxLossAll = Math.max(0, +e.target.value || 0); syncWatch(); };
-document.getElementById("brkMaxOpen").onchange = e => { cfg.robotMaxOpen = Math.min(6, Math.max(0, Math.round(+e.target.value || 0))); syncWatch(); };
+document.getElementById("brkMaxOpen").onchange = e => { cfg.robotMaxOpen = Math.min(10, Math.max(0, Math.round(+e.target.value || 0))); syncWatch(); };
 document.getElementById("brkMaxLosses").onchange = e => { cfg.robotMaxLosses = Math.max(0, Math.round(+e.target.value || 0)); syncWatch(); };
 document.getElementById("brkPanic").onclick = () => { const a = curAsset(); if (!a.crypto) return;
   cfg.watch.forEach(w => { if (w.id === a.id) w.robot = false; }); syncWatch(); brkMsg("🚨 Cancelando alvo/stop e vendendo tudo…");
@@ -1226,7 +1226,7 @@ document.getElementById("brkRobot").onclick = () => {
 function syncWatch() {
   store.set("cfg", cfg);
   const list = cfg.watch.filter(w => !binanceOnly() || w.src === "binance").map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: curExit(w.id, w.tf), short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)), robot: !!w.robot, robotQuote: cfg.robotQuote || 50, oco: cfg.robotOco !== false, maxLoss: cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, maxLosses: cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3,
-    maxLossAll: cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30, maxOpen: cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 5 }); });
+    maxLossAll: cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30, maxOpen: cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10 }); });
   if (window.Android && Android.setWatch) Android.setWatch(JSON.stringify(list));
   renderWatch();
 }
@@ -1337,7 +1337,7 @@ function toast(t) { let el = document.getElementById("toast"); if (!el) { el = d
   el.textContent = t; el.style.opacity = 1; clearTimeout(el._t); el._t = setTimeout(() => el.style.opacity = 0, 3500); }
 // liga o robô nas melhores (75%+ e lucro), troca as que saíram do topo (se não estiverem compradas)
 function applyTop() {
-  const D = optDays, N = Math.min(6, cfg.robotTopN || 5), q = cfg.repQuote || "USDT", seen = new Set();
+  const D = optDays, N = Math.min(10, cfg.robotTopN || 10), q = cfg.repQuote || "USDT", seen = new Set();
   const hit = r => Math.round(r.per[D].wins / r.per[D].n * 100);
   const pool = optResults.filter(r => r.per[D] && r.per[D].n >= 5 && r.per[D].sum > 0 && r.a.crypto && r.a.id.endsWith(q) && hit(r) >= 75), big = pool.filter(r => r.per[D].n >= 8);
   const pick = (big.length >= N ? big : pool).sort((x, y) => hit(y) - hit(x) || y.per[D].sum - x.per[D].sum).filter(r => !seen.has(r.a.id) && seen.add(r.a.id)).slice(0, N);
@@ -1350,7 +1350,7 @@ function applyTop() {
     let w = cfg.watch.find(x => x.id === r.a.id && x.tf === r.tf.id);
     if (!w) { w = { id: r.a.id, tf: r.tf.id, name: r.a.name, src: "binance", dec: 2, b3: false, cur: /USDT$/.test(r.a.id) ? "" : "R$ ", auto: true }; cfg.watch.push(w); }
     w.robot = true; w.hit = hit(r); }
-  if ((cfg.robotMaxOpen || 5) < pick.length) cfg.robotMaxOpen = pick.length;
+  if ((cfg.robotMaxOpen || 10) < pick.length) cfg.robotMaxOpen = pick.length;
   syncWatch();
   const val = cfg.robotQuote || 50;
   return { n: pick.length, html: '<p class="up" style="font-size:13px;margin:0"><b>🤖 Robô ligado em ' + pick.length + ' criptos</b> (' + val + ' ' + q + ' cada, até ' + (val * pick.length) + ' ' + q + ' se todas entrarem juntas).</p>' };
@@ -1376,9 +1376,9 @@ function showOpt() {
       '<div class="rt"><b class="up">+' + (r.a.futures ? Math.round(p.sum) + ' pts' : p.sum.toFixed(1) + '%') + '</b><small>' + p.wins + '✓ ' + (p.n - p.wins) + '✗</small></div></div>';
   });
   if (optAll && rows.length) {
-    const N = Math.min(6, cfg.robotTopN || 5), q = cfg.repQuote || "USDT";
+    const N = Math.min(10, cfg.robotTopN || 10), q = cfg.repQuote || "USDT";
     h += '<div class="card" style="margin:10px 0 6px;padding:10px;border-color:#2b6cff"><div class="row" style="align-items:center;gap:8px"><b style="font-size:14px">🤖 Ligar robô nas melhores</b>' +
-      '<div class="seg" id="topN">' + [3, 5, 6].map(n => '<button data-n="' + n + '" class="' + (n === N ? "on" : "") + '">' + n + '</button>').join("") + '</div></div>' +
+      '<div class="seg" id="topN">' + [5, 8, 10].map(n => '<button data-n="' + n + '" class="' + (n === N ? "on" : "") + '">' + n + '</button>').join("") + '</div></div>' +
       '<p class="mut" style="font-size:12px;margin:6px 0">Escolhe até ' + N + ' criptos em ' + q + ' com <b>75% ou mais</b> de acerto e lucro e liga o robô em todas, cada uma com a sua estratégia, tempo e saída.</p>' +
       '<div class="sw" style="margin:0 0 8px;font-size:13px"><span>Ligar sozinho ao terminar a análise</span><input type="checkbox" id="autoTop"' + (cfg.autoTop !== false ? " checked" : "") + '></div>' +
       '<button class="primary" id="topGo" style="margin:0;height:42px">🤖 Ligar nas ' + N + ' melhores</button></div>';
@@ -1616,6 +1616,7 @@ window.addEventListener("resize", () => { sizeCanvas(); if (data) draw(); });
 // B3: busca de novo a cada 10 s com o mercado aberto (cripto já vem ao vivo pelo WebSocket)
 setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && !a.crypto && marketOpen(a)) refresh(true); }, 10000);
 setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && (a.crypto || !marketOpen(a))) refresh(true); }, 120000);
+if (!cfg.top10) { cfg.robotTopN = 10; if (cfg.robotMaxOpen != null && cfg.robotMaxOpen < 10) cfg.robotMaxOpen = 10; cfg.top10 = true; store.set("cfg", cfg); }
 if (binanceOnly() && !curAsset().crypto) { cfg.asset = "BTCUSDT"; store.set("cfg", cfg); }
 buildUi(); sizeCanvas(); draw(); refresh(); if (cfg.watch.length) syncWatch(); syncScan();
 window.app = { analyze, backtest, candlePattern, refresh, get data() { return data; }, get an() { return an; } };
