@@ -88,6 +88,11 @@
   .lrow .tx { flex: 1; min-width: 0; } .lrow .tx b { font-size: 14px; }
   .lrow small { display: block; font-size: 11px; color: #8a94a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lrow .rt { text-align: right; flex: none; } .lrow .rt small { margin-top: 2px; }
+  .lchips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 2px 2px; }
+  .lchip { position: relative; } .lchip .logo { width: 30px; height: 30px; font-size: 9px; }
+  .lchip.on .logo { box-shadow: 0 0 0 2px #2b6cff; }
+  .lchip i { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%; background: #26c281; border: 2px solid #141a25; }
+  .lchip i.pz { background: #ffc531; } .lchip i.of { background: #6f7a8d; }
   .pill { display: inline-block; font-size: 11px; font-weight: 900; padding: 3px 8px; border-radius: 8px; background: #263042; color: #b9c1cf; }
   .pill.pg { background: #1f9e6a; color: #fff; } .pill.pr { background: #d9414f; color: #fff; }
   .orow { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 12px; background: #141a25; border: 1px solid #1c2433; margin-bottom: 6px; }
@@ -980,7 +985,7 @@ function renderLive() {
   const inf = brkInfo(), real = inf.mode === "real", t0 = new Date(); t0.setHours(0, 0, 0, 0);
   const ml = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, ms = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
   const money = (v, a) => { const c = brkQuoteCur(a); return (v >= 0 ? "+" : "−") + (c === "R$" ? "R$ " : "") + Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-  let tot = 0, opens = 0, rows = "";
+  let tot = 0, opens = 0, rows = "", openRows = "", chips = ""; const exp = !!cfg.liveOpen;
   for (const w of rs) {
     const a = assets().find(x => x.id === w.id); if (!a) continue;
     const R = robotState(a, w.tf), td = R.trips.filter(t => t.sell.t >= t0.getTime()), pnl = td.reduce((s, t) => s + t.r, 0); tot += pnl;
@@ -993,12 +998,17 @@ function renderLive() {
     } else pill = '<span class="pill">' + (w.off ? "DESLIGADO" : paused ? "⏸ PAUSADO" : "FORA") + '</span>';
     let sub2 = (TFS.find(t => t.id === w.tf) || {}).label + ' · ' + curStrat(w.id, w.tf).name + (w.hit ? ' · 🎯' + w.hit + '%' : '');
     if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · 🛑 ' + fmt(R.open.sl, a) : '');
-    rows += '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b><small>' + sub2 + '</small></div>' +
+    const row = '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b><small>' + sub2 + '</small></div>' +
       '<div class="rt">' + pill + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small></div></div>';
+    rows += row; if (R.open) openRows += row;
+    else chips += '<div class="lchip' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '" title="' + parts(a).t + '">' + logo(a) + '<i class="' + (paused ? "pz" : w.off ? "of" : "") + '"></i></div>';
   }
   const q = brkQuoteCur(curAsset()) || "USDT";
-  el.innerHTML = '<div class="hd"><span>🤖 ROBÔS · ' + (real ? '<b class="down">CONTA REAL</b>' : 'CONTA DE TESTE') + ' · ' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b></div>' + rows;
-  el.insertAdjacentHTML("beforeend", rs.some(w => w.robot) ? '<button class="rbPanic" id="liveOff" style="height:32px;margin-top:6px;border-color:#263042;color:#b9c1cf;background:none">⏹ Desligar todos os robôs</button>' : '');
+  el.innerHTML = '<div class="hd" id="liveHd" style="cursor:pointer"><span>🤖 ' + rs.length + ' ROBÔS · ' + (real ? '<b class="down">REAL</b>' : 'TESTE') + ' · <b style="color:#e6e9ef">' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</b></span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' <span class="mut">' + (exp ? "▴" : "▾") + '</span></b></div>' +
+    (exp ? rows : openRows + (chips ? '<div class="lchips">' + (openRows ? '' : '<span class="mut" style="font-size:11px;align-self:center;margin-right:2px">Fora:</span>') + chips + '</div>' : ''));
+  document.getElementById("liveHd").onclick = () => { cfg.liveOpen = !cfg.liveOpen; store.set("cfg", cfg); renderLive(); };
+  el.querySelectorAll(".lchip").forEach(c => c.onclick = () => { if (c.dataset.id !== cfg.asset || c.dataset.tf !== cfg.tf) openFrom(c.dataset.id, c.dataset.tf); });
+  if (exp) el.insertAdjacentHTML("beforeend", rs.some(w => w.robot) ? '<button class="rbPanic" id="liveOff" style="height:32px;margin-top:6px;border-color:#263042;color:#b9c1cf;background:none">⏹ Desligar todos os robôs</button>' : '');
   const off = document.getElementById("liveOff"); if (off) off.onclick = () => { cfg.watch.forEach(w => { if (w.src === "binance") w.robot = false; }); syncWatch(); renderLive(); toast("Robôs desligados. Posições abertas continuam com alvo e stop na Binance."); };
   el.querySelectorAll(".lrow").forEach(r => r.onclick = () => { if (r.dataset.id !== cfg.asset || r.dataset.tf !== cfg.tf) openFrom(r.dataset.id, r.dataset.tf); });
 }
