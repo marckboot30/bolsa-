@@ -296,7 +296,11 @@ object Strategies {
     }
 
     /** Mesma simulação do app: entra no sinal, sai na virada. Devolve os eventos. */
-    fun simulate(cs: List<Candle>, d: IntArray, mode: String, short: Boolean, daily: Boolean, target: Double = 0.0, dayOf: (Long) -> Long): List<Event> {
+    fun simulate(cs: List<Candle>, d: IntArray, mode: String, short: Boolean, daily: Boolean, target: Double = 0.0, dayOf: (Long) -> Long): List<Event> =
+        simulate(cs, d, mode, short, daily, target, 0.0, 0.0, dayOf)
+
+    /** [tpPct]/[slPct]: alvo e stop em fração do preço (saída "money", a do alvo/stop em dinheiro). */
+    fun simulate(cs: List<Candle>, d: IntArray, mode: String, short: Boolean, daily: Boolean, target: Double, tpPct: Double, slPct: Double, dayOf: (Long) -> Long): List<Event> {
         val n = cs.size; val c = DoubleArray(n) { cs[it].c }; val e9 = emaPub(c, 9)
         val pats = Array(n) { pattern(cs, it) }
         val top = DoubleArray(n) { Double.NaN }; val bot = DoubleArray(n) { Double.NaN }
@@ -308,7 +312,7 @@ object Strategies {
             top[i] = t; bot[i] = b
         }
         val ev = ArrayList<Event>(); var pos = 0; var entry = 0.0; var ei = -1
-        val bra = mode == "atr" || mode == "atr2"; val A = if (bra) atr(cs, 14) else DoubleArray(0); var tp = 0.0; var sl = 0.0
+        val bra = mode == "atr" || mode == "atr2" || mode == "money"; val A = if (bra) atr(cs, 14) else DoubleArray(0); var tp = 0.0; var sl = 0.0
         fun close(i: Int, why: String, px: Double = cs[i].c) { ev.add(Event(i, false, pos, px, entry, why)); pos = 0 }
         for (i in 1 until n) {
             var s = d[i]
@@ -322,7 +326,8 @@ object Strategies {
             if (pos != 0 && s == -pos) close(i, "sinal contrário")
             else if (pos != 0 && i > ei) { val why = exitReason(cs, i, pos, e9, pats, top, bot, mode); if (why != null) { close(i, why); exitedNow = true } }
             if (pos == 0 && s != 0 && (s == 1 || short) && !exitedNow) { pos = s; entry = cs[i].c; ei = i; ev.add(Event(i, true, s, cs[i].c, cs[i].c, ""))
-                if (bra) { val a = if (A[i].isNaN()) cs[i].h - cs[i].l else A[i]; val tk = if (mode == "atr") 1.0 else 2.0; val sk = if (mode == "atr") 2.0 else 1.0; tp = entry + pos * tk * a; sl = entry - pos * sk * a } }
+                if (mode == "money") { tp = entry * (1 + pos * (if (tpPct > 0) tpPct else .01)); sl = entry * (1 - pos * (if (slPct > 0) slPct else .01)) }
+                else if (bra) { val a = if (A[i].isNaN()) cs[i].h - cs[i].l else A[i]; val tk = if (mode == "atr") 1.0 else 2.0; val sk = if (mode == "atr") 2.0 else 1.0; tp = entry + pos * tk * a; sl = entry - pos * sk * a } }
             if (daily && pos != 0 && i < n - 1 && dayOf(cs[i + 1].t) != dayOf(cs[i].t)) close(i, "fim do pregão")
         }
         return ev

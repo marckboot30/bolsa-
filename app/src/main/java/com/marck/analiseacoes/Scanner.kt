@@ -55,6 +55,7 @@ object Scanner {
         val coins = c.optJSONArray("coins") ?: JSONArray(); val tfs = c.optJSONArray("tfs") ?: JSONArray(listOf("5m", "15m", "30m", "60m"))
         val strats = c.optJSONArray("strats") ?: JSONArray(); val exits = c.optJSONArray("exits") ?: JSONArray(listOf("auto", "atr", "atr2"))
         val fee = c.optDouble("fee", 0.001); val minOps = c.optInt("minOps", 6); val minHit = c.optDouble("minHit", 70.0)
+        val tpPct = c.optDouble("tpPct", 0.0); val slPct = c.optDouble("slPct", 0.0)
         val dayOf: (Long) -> Long = { Math.floorDiv(it - 10800, 86400L) }
         val all = ArrayList<JSONObject>(); var tested = 0
         for (ci in 0 until coins.length()) {
@@ -71,14 +72,14 @@ object Scanner {
                     val d = runCatching { Strategies.dirs(cs, st, dayOf) }.getOrNull() ?: continue
                     for (ei in 0 until exits.length()) {
                         val ex = exits.getString(ei); tested++
-                        val ev = runCatching { Strategies.simulate(cs, d, ex, false, false, 0.0, dayOf) }.getOrNull() ?: continue
-                        var n = 0; var wins = 0; var sum = 0.0
+                        val ev = runCatching { Strategies.simulate(cs, d, ex, false, false, 0.0, tpPct, slPct, dayOf) }.getOrNull() ?: continue
+                        var n = 0; var wins = 0; var sum = 0.0; var gw = 0.0; var gl = 0.0
                         for (e in ev) { if (e.entry || e.i < start) continue
-                            val r = ((e.price / e.entryPrice - 1) * e.dir - 2 * fee) * 100; n++; if (r > 0) wins++; sum += r }
+                            val r = ((e.price / e.entryPrice - 1) * e.dir - 2 * fee) * 100; n++; if (r > 0) { wins++; gw += r } else gl -= r; sum += r }
                         if (n < minOps || sum <= 0) continue
                         all.add(JSONObject().put("id", id).put("name", coin.optString("name", id)).put("tf", tf).put("strat", st.optString("id")).put("stratName", st.optString("name"))
                             .put("exit", ex).put("n", n).put("hit", Math.round(wins * 100.0 / n).toInt()).put("sum", sum).put("days", span).put("perDay", if (span > 0) sum / span else 0.0)
-                            .put("opd", if (span > 0) n / span else 0.0).put("st", st))
+                            .put("opd", if (span > 0) n / span else 0.0).put("st", st).put("pf", if (gl > 0) gw / gl else if (gw > 0) 99.0 else 0.0))
                     }
                 }
             }

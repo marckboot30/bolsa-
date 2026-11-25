@@ -78,25 +78,25 @@ object Turnos {
     private fun analyzeAndApply(ctx: Context, get: (String) -> String, notify: (String, String, String) -> Unit, progress: (String) -> Unit, id: String) {
         val c = cfg(ctx)
         val scan = JSONObject().put("coins", c.optJSONArray("coins")).put("tfs", c.optJSONArray("tfs")).put("strats", c.optJSONArray("strats"))
-            .put("exits", JSONArray(listOf("auto", "atr", "atr2"))).put("fee", .001).put("minOps", 5).put("minHit", c.optDouble("minHit", 75.0))
+            .put("exits", c.optJSONArray("exits") ?: JSONArray(listOf("auto", "atr", "atr2"))).put("tpPct", c.optDouble("tpPct", 0.0)).put("slPct", c.optDouble("slPct", 0.0))
+            .put("fee", .001).put("minOps", 10).put("minHit", 0.0)
         val rep = Scanner.run(ctx, get, scan, c.optInt("days", 15), progress)
         val items = rep.optJSONArray("items") ?: JSONArray()
         val minHit = c.optDouble("minHit", 75.0); val minFreq = c.optDouble("minFreq", 1.0); val topN = c.optInt("topN", 10); val quote = c.optString("quote", "USDT")
+        // lucro por dia, com 10+ operações e ganhos maiores que as perdas (ganho÷perda ≥ 1,3)
         val all = (0 until items.length()).map { items.getJSONObject(it) }
-            .filter { it.optInt("hit") >= minHit && it.optDouble("sum") > 0 && it.optInt("n") >= 5 && it.optDouble("opd") >= minFreq && it.optString("id").endsWith(quote) }
-        val big = all.filter { it.optInt("n") >= 8 }
+            .filter { it.optDouble("sum") > 0 && it.optInt("n") >= 10 && it.optDouble("pf") >= 1.3 && it.optDouble("opd") >= minFreq && it.optString("id").endsWith(quote) }
         val seen = HashSet<String>()
-        val pick = (if (big.size >= topN) big else all).sortedWith(compareByDescending<JSONObject> { it.optInt("hit") }.thenByDescending { it.optDouble("sum") })
-            .filter { seen.add(it.optString("id")) }.take(topN)
+        val pick = all.sortedByDescending { it.optDouble("perDay") }.filter { seen.add(it.optString("id")) }.take(topN)
         val turno = if (id.endsWith("-11")) "13h" else "01h"
         if (pick.isEmpty()) {
             setLast(ctx, "Nenhuma cripto passou nos filtros. Robôs mantidos.")
-            notify("turno|vazio|$id", "📊 Análise do turno: nenhuma passou", "Nenhuma cripto teve ${minHit.toInt()}%+ de acerto, lucro e ${minFreq} op/dia. Os robôs continuam com a seleção anterior.")
+            notify("turno|vazio|$id", "📊 Análise do turno: nenhuma passou", "Nenhuma cripto teve lucro com 10+ operações, ganhos maiores que as perdas e ${minFreq} op/dia. Os robôs continuam com a seleção anterior.")
             return
         }
-        applyPick(ctx, pick, c.optJSONObject("tpl") ?: JSONObject())
+        applyPick(ctx, pick, c.optJSONObject("tpl") ?: JSONObject(), c.optBoolean("vigiaTop", true))
         val b = pick[0]
-        val msg = "${pick.size} criptos para o turno das $turno · melhor ${b.optString("name")} ${b.optInt("hit")}%"
+        val msg = "${pick.size} criptos para o turno das $turno · melhor ${b.optString("name")} " + String.format(java.util.Locale("pt", "BR"), "%+.2f%%/dia", b.optDouble("perDay"))
         setLast(ctx, msg)
         notify("turno|ok|$id", "🤖 Robôs atualizados", msg + ". Toque para ver.")
     }
@@ -104,7 +104,7 @@ object Turnos {
     private fun setLast(ctx: Context, m: String) = sp(ctx).edit().putString("lastMsg", m).putLong("lastT", System.currentTimeMillis()).apply()
 
     /** Troca os robôs na lista da vigia: liga nos escolhidos, desliga os outros (menos os comprados). */
-    private fun applyPick(ctx: Context, pick: List<JSONObject>, tpl: JSONObject) {
+    private fun applyPick(ctx: Context, pick: List<JSONObject>, tpl: JSONObject, onlyTop: Boolean) {
         val vp = ctx.getSharedPreferences("vigia", Context.MODE_PRIVATE)
         val arr = runCatching { JSONArray(vp.getString("list", "[]")) }.getOrDefault(JSONArray())
         val keep = pick.map { it.optString("id") + "|" + it.optString("tf") }.toSet()
@@ -112,6 +112,8 @@ object Turnos {
         for (i in 0 until arr.length()) { val w = arr.getJSONObject(i); val k = w.optString("id") + "|" + w.optString("tf")
             if (w.optString("src") == "binance" && w.optBoolean("robot") && k !in keep && Broker.slot(ctx, k) == null && !Broker.inPosition(ctx, w.optString("id"))) w.put("robot", false)
             if (w.optBoolean("auto") && !w.optBoolean("robot") && k !in keep) continue
+            // vigiar só as escolhidas (e as compradas): tira as outras criptos da vigia
+            if (onlyTop && w.optString("src") == "binance" && !w.optBoolean("robot") && k !in keep) continue
             out.put(w) }
         for (p in pick) { val k = p.optString("id") + "|" + p.optString("tf")
             var w: JSONObject? = null; for (i in 0 until out.length()) { val x = out.getJSONObject(i); if (x.optString("id") + "|" + x.optString("tf") == k) w = x }

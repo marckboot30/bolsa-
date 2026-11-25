@@ -179,7 +179,9 @@ class MonitorService : Service() {
         val tfName = when (w.tf) { "60m" -> "1 hora"; "1d" -> "diário"; else -> w.tf.removeSuffix("m") + " min" }
         if (w.cross) {
             val dirs = Strategies.dirs(cs, w.strat) { day(it) }
-            val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d", w.target) { day(it) }
+            val q = if (w.robotQuote > 0) w.robotQuote else 50.0; val fees = q * 0.002
+            val tpP = if (w.tpMoney > 0) (w.tpMoney + fees) / q else 0.0; val slP = if (w.slMoney > 0) maxOf(0.0005, (w.slMoney - fees) / q) else 0.0
+            val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d", w.target, tpP, slP) { day(it) }
             val stKey = "st|${w.id}|${w.tf}"; val wasIn = sentPrefs.getBoolean(stKey, false)
             sentPrefs.edit().putBoolean(stKey, evs.lastOrNull()?.entry == true).apply()
             if (w.robot && w.src == "binance") {
