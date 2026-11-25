@@ -254,7 +254,9 @@ class MonitorService : Service() {
         if (!lockOn && !runOn) return
         val sl0 = Broker.slot(this, "${w.id}|${w.tf}") ?: return; if (!sl0.has("oco")) return
         val q = sl0.optDouble("quote"); val qty = sl0.optDouble("qty"); val pr = sl0.optDouble("price"); if (q <= 0 || qty <= 0 || pr <= 0) return
-        val fees = q * 0.002; fun px(m: Double) = pr * (1 + (m + fees) / q); fun money(price: Double) = (price / pr - 1) * q - fees
+        val fees = q * 0.002
+        val px = { m: Double -> pr * (1 + (m + fees) / q) }
+        val money = { price: Double -> (price / pr - 1) * q - fees }
         val now = JSONObject(get("https://api.binance.com/api/v3/ticker/price?symbol=${w.id}")).getString("price").toDouble()
         val pnl = qty * now - q - fees; val peak = maxOf(sl0.optDouble("peak", 0.0), pnl)
         var ph = sl0.optInt("ph", 0); val tpM = money(sl0.optDouble("tp")); val slM = money(sl0.optDouble("sl"))
