@@ -179,10 +179,15 @@ class MonitorService : Service() {
             val evs = Strategies.simulate(cs, dirs, w.exit, w.short || w.dec == 0, w.b3 && w.tf != "1d", w.target) { day(it) }
             val stKey = "st|${w.id}|${w.tf}"; val wasIn = sentPrefs.getBoolean(stKey, false)
             sentPrefs.edit().putBoolean(stKey, evs.lastOrNull()?.entry == true).apply()
+            if (w.robot && w.src == "binance") {
+                // entrar junto: a análise deu compra há até 2 candles e o robô ainda está fora
+                val last = evs.lastOrNull()
+                if (last != null && last.entry && last.dir > 0 && last.i < k && last.i >= k - 2 && !Broker.inPosition(this, w.id)) robot(w, last, cs[last.i].t, cs)
+            }
             for (e in evs) {
                 if (e.i != k) continue
-                if (e.entry == wasIn) continue // já avisou essa entrada (ou essa saída) antes
                 if (w.robot && w.src == "binance") robot(w, e, c.t, cs)
+                if (e.entry == wasIn) continue // já avisou essa entrada (ou essa saída) antes
                 if (e.entry) send("${w.id}|${w.tf}|in|${c.t}",
                     (if (e.dir > 0) "🟢 ENTRADA DE COMPRA" else "🔴 ENTRADA DE VENDA") + " · ${w.name} ($tfName)",
                     "${w.stratName}. Preço: ${fmt(e.price, w)}. Vou avisar quando for hora de sair.")

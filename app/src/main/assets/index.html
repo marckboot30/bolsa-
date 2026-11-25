@@ -1342,6 +1342,8 @@ document.getElementById("optRun").onclick = async () => {
   } finally { btn.disabled = false; document.getElementById("optProg").classList.add("hidden"); document.getElementById("optForm").classList.remove("hidden"); }
 };
 let optAll = false;
+const opd = r => r.per[optDays].n / Math.max(1, r.days[optDays]);
+const fpd = r => { const v = opd(r); return v >= 10 ? Math.round(v) : v.toFixed(1).replace(".", ","); };
 document.getElementById("optClose").onclick = () => optSheet.classList.remove("open");
 function toast(t) { let el = document.getElementById("toast"); if (!el) { el = document.createElement("div"); el.id = "toast"; el.style.cssText = "position:fixed;left:12px;right:12px;bottom:24px;z-index:50;background:#1f2a3d;border:1px solid #2b6cff;color:#fff;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:700;text-align:center;transition:opacity .3s"; document.body.appendChild(el); }
   el.textContent = t; el.style.opacity = 1; clearTimeout(el._t); el._t = setTimeout(() => el.style.opacity = 0, 3500); }
@@ -1349,9 +1351,10 @@ function toast(t) { let el = document.getElementById("toast"); if (!el) { el = d
 function applyTop() {
   const D = optDays, N = Math.min(10, cfg.robotTopN || 10), q = cfg.repQuote || "USDT", seen = new Set();
   const hit = r => Math.round(r.per[D].wins / r.per[D].n * 100);
-  const pool = optResults.filter(r => r.per[D] && r.per[D].n >= 5 && r.per[D].sum > 0 && r.a.crypto && r.a.id.endsWith(q) && hit(r) >= 75), big = pool.filter(r => r.per[D].n >= 8);
+  const freq = cfg.minFreq != null ? cfg.minFreq : 1;
+  const pool = optResults.filter(r => r.per[D] && r.per[D].n >= 5 && r.per[D].sum > 0 && r.a.crypto && r.a.id.endsWith(q) && hit(r) >= 75 && opd(r) >= freq), big = pool.filter(r => r.per[D].n >= 8);
   const pick = (big.length >= N ? big : pool).sort((x, y) => hit(y) - hit(x) || y.per[D].sum - x.per[D].sum).filter(r => !seen.has(r.a.id) && seen.add(r.a.id)).slice(0, N);
-  if (!pick.length) return { n: 0, html: '<p class="down" style="font-size:12px">Nenhuma cripto em ' + q + ' chegou a 75% de acerto com lucro nos últimos ' + D + ' dias. Robôs não foram trocados.</p>' };
+  if (!pick.length) return { n: 0, html: '<p class="down" style="font-size:12px">Nenhuma cripto em ' + q + ' chegou a 75% de acerto com lucro e ' + (cfg.minFreq != null ? cfg.minFreq : 1) + '+ operação por dia nos últimos ' + D + ' dias. Tente marcar tempos gráficos menores (5 ou 10 min) ou baixar a frequência. Robôs não foram trocados.</p>' };
   const keep = new Set(pick.map(r => r.a.id + "|" + r.tf.id));
   for (const w of cfg.watch) if (w.robot && w.src === "binance" && !keep.has(w.id + "|" + w.tf)) { const a = assets().find(x => x.id === w.id); if (!(a && robotState(a, w.tf).open)) w.robot = false; }
   cfg.watch = cfg.watch.filter(w => !w.auto || w.robot);
@@ -1382,14 +1385,15 @@ function showOpt() {
     const p = r.per[D], hp = hit(r), part = r.days[D] < D - 1;
     h += '<div class="orow" data-k="' + optResults.indexOf(r) + '">' + logo(r.a) +
       '<div class="tx"><div><b>' + parts(r.a).t + '</b> <span class="tag"' + (hp >= 70 ? ' style="background:#1f5a3f;color:#9ff0c8"' : '') + '>' + (hp >= 70 ? '🎯 ' : '') + hp + '%</span>' + (consist(r) ? ' <span class="up" style="font-size:12px">✔</span>' : '') + '</div>' +
-      '<small>' + r.st.name + '</small><small>' + r.tf.label + ' · ' + EXIT_SHORT[r.ex] + ' · ' + p.n + ' op.' + (part ? ' · ' + r.days[D] + 'd' : '') + '</small></div>' +
+      '<small>' + r.st.name + '</small><small>' + r.tf.label + ' · ' + EXIT_SHORT[r.ex] + ' · <b style="color:#c9d1dd">' + fpd(r) + ' op/dia</b>' + (part ? ' · ' + r.days[D] + 'd' : '') + '</small></div>' +
       '<div class="rt"><b class="up">+' + (r.a.futures ? Math.round(p.sum) + ' pts' : p.sum.toFixed(1) + '%') + '</b><small>' + p.wins + '✓ ' + (p.n - p.wins) + '✗</small></div></div>';
   });
   if (optAll && rows.length) {
     const N = Math.min(10, cfg.robotTopN || 10), q = cfg.repQuote || "USDT";
     h += '<div class="card" style="margin:10px 0 6px;padding:10px;border-color:#2b6cff"><div class="row" style="align-items:center;gap:8px"><b style="font-size:14px">🤖 Ligar robô nas melhores</b>' +
       '<div class="seg" id="topN">' + [5, 8, 10].map(n => '<button data-n="' + n + '" class="' + (n === N ? "on" : "") + '">' + n + '</button>').join("") + '</div></div>' +
-      '<p class="mut" style="font-size:12px;margin:6px 0">Escolhe até ' + N + ' criptos em ' + q + ' com <b>75% ou mais</b> de acerto e lucro e liga o robô em todas, cada uma com a sua estratégia, tempo e saída.</p>' +
+      '<p class="mut" style="font-size:12px;margin:6px 0">Escolhe até ' + N + ' criptos em ' + q + ' com <b>75% ou mais</b> de acerto, lucro e pelo menos <b>' + String(cfg.minFreq != null ? cfg.minFreq : 1).replace(".", ",") + ' operação por dia</b> e liga o robô em todas, cada uma com a sua estratégia, tempo e saída.</p>' +
+      '<div class="row" style="align-items:center;margin:0 0 8px"><span style="font-size:13px">Mínimo de operações por dia</span><div class="seg" id="minFreq">' + [0.5, 1, 2, 3].map(v => '<button data-f="' + v + '" class="' + (v === (cfg.minFreq != null ? cfg.minFreq : 1) ? "on" : "") + '">' + String(v).replace(".", ",") + '</button>').join("") + '</div></div>' +
       '<div class="sw" style="margin:0 0 8px;font-size:13px"><span>Ligar sozinho ao terminar a análise</span><input type="checkbox" id="autoTop"' + (cfg.autoTop !== false ? " checked" : "") + '></div>' +
       '<button class="primary" id="topGo" style="margin:0;height:42px">🤖 Ligar nas ' + N + ' melhores</button></div>';
   }
@@ -1399,6 +1403,7 @@ function showOpt() {
   optOut.querySelectorAll("#topN [data-n]").forEach(b => b.onclick = () => { cfg.robotTopN = +b.dataset.n; store.set("cfg", cfg); showOpt(); });
   const go = document.getElementById("topGo");
   if (go) go.onclick = () => { const r = applyTop(); go.outerHTML = r.html; if (r.n) { optSheet.classList.remove("open"); renderLive(); document.getElementById("live").scrollIntoView({ behavior: "smooth", block: "center" }); } };
+  optOut.querySelectorAll("#minFreq [data-f]").forEach(b => b.onclick = () => { cfg.minFreq = +b.dataset.f; store.set("cfg", cfg); showOpt(); });
   const at = document.getElementById("autoTop"); if (at) at.onchange = () => { cfg.autoTop = at.checked; store.set("cfg", cfg); };
   optOut.querySelectorAll(".orow").forEach(el => el.onclick = () => { const r = optResults[+el.dataset.k]; optSheet.classList.remove("open"); openFrom(r.a.id, r.tf.id, r.st.id, r.ex); });
 }
