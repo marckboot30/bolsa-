@@ -35,6 +35,7 @@
                 android:value="Vigia de cotações que avisa sinais de compra e venda" />
         </service>
         <receiver android:name=".UpdateReceiver" android:exported="false" />
+        <provider android:name=".ApkProvider" android:authorities="${applicationId}.apk" android:exported="false" android:grantUriPermissions="true" />
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

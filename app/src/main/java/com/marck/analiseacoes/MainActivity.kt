@@ -116,13 +116,18 @@ class MainActivity : Activity() {
             thread {
                 try {
                     Updater.install(this@MainActivity, url) { p -> runOnUiThread { web.evaluateJavascript("window.onUpdProgress && window.onUpdProgress($p, '')", null) } }
-                    runOnUiThread { web.evaluateJavascript("window.onUpdProgress && window.onUpdProgress(101, '')", null) }
+                    runOnUiThread { web.evaluateJavascript("window.onUpdProgress && window.onUpdProgress(101, '')", null)
+                        runCatching { Updater.openInstaller(this@MainActivity) }.onFailure { runCatching { Updater.installSession(this@MainActivity) } } }
                 } catch (e: Exception) {
                     val m = (e.message ?: "falha").replace("'", " ")
                     runOnUiThread { web.evaluateJavascript("window.onUpdProgress && window.onUpdProgress(-1, '$m')", null) }
                 }
             }
         }
+
+        /** Abre de novo o instalador com o APK já baixado (ou tenta pelo outro caminho). */
+        @JavascriptInterface
+        fun installAgain(other: Boolean) { runOnUiThread { runCatching { if (other) thread { runCatching { Updater.installSession(this@MainActivity) } } else Updater.openInstaller(this@MainActivity) } } }
 
         @JavascriptInterface
         fun setTurnos(json: String) { Turnos.save(this@MainActivity, json); Watches.apply(this@MainActivity) }

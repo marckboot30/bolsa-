@@ -1491,19 +1491,22 @@ function showUpd(html) { const b = document.getElementById("updBar"); b.innerHTM
 window.onUpdCheck = b64 => { let r; try { r = JSON.parse(decodeURIComponent(escape(atob(b64)))); } catch (e) { return; }
   if (r.error) { if (updManual) toast("Não consegui verificar agora. Confira a internet."); return; }
   updInfo = r;
-  if (r.available) showUpd('<div class="tx"><b>⬆️ Nova versão: v' + r.latest + '</b><br><span class="mut">Você está na v' + r.current + '. Atualiza em 2 toques.</span></div><button id="updGo">Atualizar</button>');
+  if (r.available) showUpd('<div class="tx"><b>⬆️ Nova versão: v' + r.latest + '</b><br><span class="mut">Você está na v' + r.current + '. Toque em Atualizar.</span></div><button id="updGo">Atualizar</button>');
   else if (updManual) toast("✅ Você já está na versão mais nova (v" + r.current + ").");
   const g = document.getElementById("updGo"); if (g) g.onclick = () => { Android.installUpdate(r.url); showUpd('<div class="tx"><b>⬇️ Baixando a v' + r.latest + '…</b><div class="bar"><div id="updFill"></div></div></div>'); };
+  if (r.available && updGoNow && g) g.click(); updGoNow = false;
 };
 window.onUpdProgress = (p, msg) => {
   if (p === -2) { showUpd('<div class="tx"><b>Falta uma permissão</b><br><span class="mut">Na tela que abriu, ligue <b>"Permitir desta fonte"</b> e volte aqui.</span></div><button id="updGo2">Tentar de novo</button>');
     document.getElementById("updGo2").onclick = () => { Android.installUpdate(updInfo.url); showUpd('<div class="tx"><b>⬇️ Baixando…</b><div class="bar"><div id="updFill"></div></div></div>'); }; return; }
   if (p === -1) { showUpd('<div class="tx"><b>⚠️ Não deu para atualizar</b><br><span class="mut">' + msg + '</span></div><button id="updGo2">Tentar de novo</button>'); document.getElementById("updGo2").onclick = () => window.onUpdCheck(btoa(unescape(encodeURIComponent(JSON.stringify(updInfo))))) || Android.installUpdate(updInfo.url); return; }
-  if (p === 101) { showUpd('<div class="tx"><b>✅ Baixado!</b><br><span class="mut">Toque em <b>Atualizar</b> na tela do Android. O app reabre já na versão nova.</span></div>'); return; }
+  if (p === 101) { showUpd('<div class="tx"><b>✅ Baixado!</b><br><span class="mut">Toque em <b>Instalar/Atualizar</b> na tela do Android. Não abriu?</span><div style="display:flex;gap:6px;margin-top:6px"><button id="updA">Abrir instalador</button><button id="updB" style="background:#3a4356">Outro jeito</button></div></div>');
+    document.getElementById("updA").onclick = () => Android.installAgain(false); document.getElementById("updB").onclick = () => Android.installAgain(true); return; }
   const f = document.getElementById("updFill"); if (f) f.style.width = p + "%";
 };
 function checkUpd(manual) { if (!(window.Android && Android.checkUpdate)) { if (manual) toast("Só funciona no app do celular."); return; } updManual = !!manual; Android.checkUpdate(); }
-document.getElementById("updCheck").onclick = () => { document.getElementById("menu").classList.remove("open"); checkUpd(true); };
+document.getElementById("updCheck").onclick = () => { document.getElementById("menu").classList.remove("open"); window.scrollTo({ top: 0, behavior: "smooth" }); updGoNow = true; checkUpd(true); };
+let updGoNow = false;
 setTimeout(() => checkUpd(false), 4000);
 setInterval(() => { if (!document.hidden) checkUpd(false); }, 6 * 3600000);
 // ================= HISTÓRICO =================
