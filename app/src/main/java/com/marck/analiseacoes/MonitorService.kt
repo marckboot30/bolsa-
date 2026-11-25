@@ -28,6 +28,7 @@ data class Watch(
     val strat: JSONObject, val stratName: String, val exit: String, val short: Boolean, val target: Double = 0.0,
     val robot: Boolean = false, val robotQuote: Double = 0.0, val cur: String = "R$ ",
     val maxLoss: Double = 0.0, val maxLosses: Int = 0, val oco: Boolean = true, val maxLossAll: Double = 0.0, val maxOpen: Int = 0,
+    val tpMoney: Double = 0.0, val slMoney: Double = 0.0,
 )
 
 object Watches {
@@ -42,7 +43,8 @@ object Watches {
                 o.optJSONObject("strat") ?: JSONObject().put("type", "ma").put("f", o.optInt("fast", 9)).put("s", o.optInt("slow", 21)),
                 o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false), o.optDouble("target", 0.0),
                 o.optBoolean("robot", false), o.optDouble("robotQuote", 0.0), o.optString("cur", if (o.optString("id").endsWith("USDT")) "" else "R$ "),
-                o.optDouble("maxLoss", 0.0), o.optInt("maxLosses", 0), o.optBoolean("oco", true), o.optDouble("maxLossAll", 0.0), o.optInt("maxOpen", 0))
+                o.optDouble("maxLoss", 0.0), o.optInt("maxLosses", 0), o.optBoolean("oco", true), o.optDouble("maxLossAll", 0.0), o.optInt("maxOpen", 0),
+                o.optDouble("tpMoney", 0.0), o.optDouble("slMoney", 0.0))
         }
     }.getOrDefault(emptyList())
 
@@ -262,7 +264,11 @@ class MonitorService : Service() {
                 if (w.oco) {
                     val a = Strategies.atr(cs, 14); val k = cs.size - 1; val at = if (a[k].isNaN()) cs[k].h - cs[k].l else a[k]
                     val (tk, sk) = when (w.exit) { "atr" -> Pair(1.0, 2.0); "atr2" -> Pair(2.0, 1.0); else -> Pair(4.0, 2.0) }
-                    val pr = o.getDouble("price"); val tp = pr + tk * at; val sl = pr - sk * at
+                    val pr = o.getDouble("price"); var tp = pr + tk * at; var sl = pr - sk * at
+                    // alvo/stop em dinheiro: já contando ~0,2% de taxas (ida e volta)
+                    val q = o.getDouble("quote"); val fees = q * 0.002
+                    if (w.tpMoney > 0 && q > 0) tp = pr * (1 + (w.tpMoney + fees) / q)
+                    if (w.slMoney > 0 && q > 0) sl = pr * (1 - maxOf(0.0005, (w.slMoney - fees) / q))
                     try { Broker.robotProtect(this, w.id, w.tf, tp, sl); Broker.patchLast(this, JSONObject().put("tp", tp).put("sl", sl)) }
                     catch (x: Exception) { send("$key|semstop", "⚠️ Robô comprou sem stop na Binance · ${w.name}", (x.message ?: "falha") + " O app continua vigiando a saída.") }
                 }

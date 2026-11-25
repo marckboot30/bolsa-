@@ -193,6 +193,9 @@
     </details>
     <details class="rbSec"><summary>🛡 Proteção</summary>
       <div class="sw" style="margin-top:6px;font-size:13px"><span>Alvo e stop direto na Binance</span><input type="checkbox" id="brkOco"></div>
+      <div class="rbRow"><label for="brkTpM">Alvo por operação</label><input type="number" id="brkTpM" min="0" step="0.5" class="sm"></div>
+      <div class="rbRow"><label for="brkSlM">Stop por operação</label><input type="number" id="brkSlM" min="0" step="0.5" class="sm"></div>
+      <p class="mut" style="font-size:11px;margin:0 0 4px">Em dinheiro, já descontando as taxas. Ex.: alvo 1 = fecha quando ganhar $1 líquido. 0 = usar o alvo/stop da estratégia (ATR).</p>
       <div class="rbRow"><label for="brkMaxLoss">Perda máxima por dia</label><input type="number" id="brkMaxLoss" min="0" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxLosses">Parar após perdas seguidas</label><input type="number" id="brkMaxLosses" min="0" max="20" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxLossAll">Perda máxima do dia (todos os robôs)</label><input type="number" id="brkMaxLossAll" min="0" step="1" class="sm"></div>
@@ -1281,6 +1284,9 @@ function renderRobot() {
   document.getElementById("brkMaxLossAll").value = cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30; document.getElementById("brkMaxOpen").value = cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10;
   document.querySelector('label[for="brkMaxLossAll"]').textContent = "Perda máxima do dia (todos)" + (cur ? " (" + cur + ")" : "");
   document.getElementById("brkOco").checked = cfg.robotOco !== false;
+  document.getElementById("brkTpM").value = cfg.robotTpM != null ? cfg.robotTpM : 1; document.getElementById("brkSlM").value = cfg.robotSlM != null ? cfg.robotSlM : 0;
+  document.querySelector('label[for="brkTpM"]').textContent = "Alvo por operação" + (cur ? " (" + cur + ")" : "");
+  document.querySelector('label[for="brkSlM"]').textContent = "Stop por operação" + (cur ? " (" + cur + ")" : "");
   document.getElementById("trnOn").checked = !!cfg.turnos;
   document.getElementById("trnDays").innerHTML = [7, 15, 30].map(d => '<button data-d="' + d + '" class="' + (d === (cfg.turnoDays || 15) ? "on" : "") + '">' + d + 'd</button>').join("");
   document.querySelectorAll("#trnDays [data-d]").forEach(b => b.onclick = () => { cfg.turnoDays = +b.dataset.d; store.set("cfg", cfg); syncTurnos(); renderRobot(); });
@@ -1328,6 +1334,8 @@ document.getElementById("brkDel").onclick = () => { if (window.Android && Androi
 document.getElementById("brkQuote").onchange = e => { const v = +e.target.value; if (v > 0) { cfg.robotQuote = v; syncWatch(); renderRobot(); } };
 document.getElementById("trnOn").onchange = e => { cfg.turnos = e.target.checked; store.set("cfg", cfg); syncTurnos(); renderLive();
   toast(cfg.turnos ? "⏰ Turnos ligados: análise às 11h e às 23h" : "Turnos desligados"); };
+document.getElementById("brkTpM").onchange = e => { cfg.robotTpM = Math.max(0, +e.target.value || 0); syncWatch(); toast(cfg.robotTpM ? "🎯 Alvo: fecha ao ganhar " + cfg.robotTpM + " líquido" : "Alvo pelo ATR da estratégia"); };
+document.getElementById("brkSlM").onchange = e => { cfg.robotSlM = Math.max(0, +e.target.value || 0); syncWatch(); };
 document.getElementById("brkOco").onchange = e => { cfg.robotOco = e.target.checked; syncWatch(); };
 document.getElementById("brkMaxLoss").onchange = e => { cfg.robotMaxLoss = Math.max(0, +e.target.value || 0); syncWatch(); };
 document.getElementById("brkMaxLossAll").onchange = e => { cfg.robotMaxLossAll = Math.max(0, +e.target.value || 0); syncWatch(); };
@@ -1351,6 +1359,7 @@ document.getElementById("brkRobot").onclick = () => {
 };
 
 function mapW(w) { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: curExit(w.id, w.tf), short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)), robot: !!w.robot, robotQuote: cfg.robotQuote || 50, oco: cfg.robotOco !== false, maxLoss: cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, maxLosses: cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3,
+    tpMoney: cfg.robotTpM != null ? cfg.robotTpM : 1, slMoney: cfg.robotSlM != null ? cfg.robotSlM : 0,
     maxLossAll: cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30, maxOpen: cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10 }); }
 function syncWatch() {
   store.set("cfg", cfg);
