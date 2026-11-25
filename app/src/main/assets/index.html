@@ -88,6 +88,8 @@
   .lrow .tx { flex: 1; min-width: 0; } .lrow .tx b { font-size: 14px; }
   .lrow small { display: block; font-size: 11px; color: #8a94a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lrow .rt { text-align: right; flex: none; } .lrow .rt small { margin-top: 2px; }
+  .tbar { font-size: 11px; color: #9ff0c8; background: rgba(31,158,106,.12); border-radius: 8px; padding: 5px 8px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tbar.pz { color: #ffd166; background: rgba(255,197,49,.12); }
   .lchips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 2px 2px; }
   .lchip { position: relative; } .lchip .logo { width: 30px; height: 30px; font-size: 9px; }
   .lchip.on .logo { box-shadow: 0 0 0 2px #2b6cff; }
@@ -123,6 +125,7 @@
   #robotCard input.sm { height: 38px !important; font-size: 15px; border-radius: 10px; }
   .rbRow input.sm { width: 110px !important; text-align: right; }
   .rbBtns { display: flex; gap: 6px; margin: 8px 0 6px; } .rbBtns .chip { flex: 1; height: 36px; font-size: 13px; padding: 0 6px; }
+  .trn { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px; } .trn td { padding: 4px 2px; border-top: 1px solid #1c2433; } .trn td:first-child { color: #8a94a6; width: 70px; }
   .rbPanic { width: 100%; height: 38px; margin-top: 8px; border-radius: 10px; border: 1px solid #d9414f; background: rgba(217,65,79,.08); color: #ff8a95; font-size: 13px; font-weight: 800; }
   .sw input { width: 22px; height: 22px; }
   .primary { width: 100%; height: 48px; margin-top: 18px; border-radius: 12px; border: none; background: #2b6cff; color: #fff; font-weight: 800; font-size: 16px; }
@@ -176,6 +179,13 @@
       <div class="rbRow"><label for="brkMaxLossAll">Perda máxima do dia (todos os robôs)</label><input type="number" id="brkMaxLossAll" min="0" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxOpen">Máx. robôs comprados ao mesmo tempo</label><input type="number" id="brkMaxOpen" min="0" max="10" step="1" class="sm"></div>
       <p class="mut" style="font-size:11px;margin:4px 0 0">As duas primeiras valem por cripto; as duas últimas somam todos os robôs. Ao bater um limite, para de comprar até amanhã. 0 desliga.</p>
+    </details>
+    <details class="rbSec"><summary>⏰ Turnos automáticos</summary>
+      <div class="sw" style="margin-top:6px;font-size:13px"><span>Analisar sozinho às 11h e às 23h e trocar os robôs</span><input type="checkbox" id="trnOn"></div>
+      <div class="rbRow"><label>Período da análise</label><div class="seg" id="trnDays"></div></div>
+      <table class="trn"><tr><td>01h–11h</td><td>🟢 Robôs operando</td></tr><tr><td>11h–13h</td><td>🔒 Fecha tudo · 🔬 análise detalhada</td></tr><tr><td>13h–23h</td><td>🟢 Robôs operando</td></tr><tr><td>23h–01h</td><td>🔒 Fecha tudo · 🔬 análise detalhada</td></tr></table>
+      <p class="mut" style="font-size:11px;margin:4px 0 0">Escolhe até 10 criptos com 75%+ de acerto, lucro e o mínimo de operações por dia que você escolheu. Funciona com o app fechado (a vigia 👁 precisa estar ativa).</p>
+      <p id="trnLast" style="font-size:12px;margin:6px 0 0"></p>
     </details>
     <details class="rbSec" id="brkKeys"><summary>🔑 Chave da API deste modo</summary>
       <label>Chave da API (API Key)</label><input type="text" id="brkKey" autocomplete="off" autocapitalize="off" spellcheck="false" class="sm">
@@ -1004,7 +1014,10 @@ function renderLive() {
     else chips += '<div class="lchip' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '" title="' + parts(a).t + '">' + logo(a) + '<i class="' + (paused ? "pz" : w.off ? "of" : "") + '"></i></div>';
   }
   const q = brkQuoteCur(curAsset()) || "USDT";
-  el.innerHTML = '<div class="hd" id="liveHd" style="cursor:pointer"><span>🤖 ' + rs.length + ' ROBÔS · ' + (real ? '<b class="down">REAL</b>' : 'TESTE') + ' · <b style="color:#e6e9ef">' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</b></span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' <span class="mut">' + (exp ? "▴" : "▾") + '</span></b></div>' +
+  const T = turnosState(), hh = T.hour;
+  const tline = T.on ? (T.paused ? '<div class="tbar pz">⏸ Pausa para análise · robôs voltam às ' + (hh === 11 || hh === 12 ? "13h" : "01h") + '</div>'
+    : '<div class="tbar">⏰ Turno até às ' + (hh >= 1 && hh < 11 ? "11h" : "23h") + (T.last ? ' · ' + T.last : '') + '</div>') : '';
+  el.innerHTML = tline + '<div class="hd" id="liveHd" style="cursor:pointer"><span>🤖 ' + rs.length + ' ROBÔS · ' + (real ? '<b class="down">REAL</b>' : 'TESTE') + ' · <b style="color:#e6e9ef">' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</b></span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' <span class="mut">' + (exp ? "▴" : "▾") + '</span></b></div>' +
     (exp ? rows : openRows + (chips ? '<div class="lchips">' + (openRows ? '' : '<span class="mut" style="font-size:11px;align-self:center;margin-right:2px">Fora:</span>') + chips + '</div>' : ''));
   document.getElementById("liveHd").onclick = () => { cfg.liveOpen = !cfg.liveOpen; store.set("cfg", cfg); renderLive(); };
   el.querySelectorAll(".lchip").forEach(c => c.onclick = () => { if (c.dataset.id !== cfg.asset || c.dataset.tf !== cfg.tf) openFrom(c.dataset.id, c.dataset.tf); });
@@ -1170,7 +1183,11 @@ function renderRobot() {
   const cur = brkQuoteCur(a); document.getElementById("brkQuote").value = cfg.robotQuote || 50;
   document.getElementById("brkMaxLossAll").value = cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30; document.getElementById("brkMaxOpen").value = cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10;
   document.querySelector('label[for="brkMaxLossAll"]').textContent = "Perda máxima do dia (todos)" + (cur ? " (" + cur + ")" : "");
-  document.getElementById("brkOco").checked = cfg.robotOco !== false; document.getElementById("brkMaxLoss").value = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10; document.getElementById("brkMaxLosses").value = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
+  document.getElementById("brkOco").checked = cfg.robotOco !== false;
+  document.getElementById("trnOn").checked = !!cfg.turnos;
+  document.getElementById("trnDays").innerHTML = [7, 15, 30].map(d => '<button data-d="' + d + '" class="' + (d === (cfg.turnoDays || 15) ? "on" : "") + '">' + d + 'd</button>').join("");
+  document.querySelectorAll("#trnDays [data-d]").forEach(b => b.onclick = () => { cfg.turnoDays = +b.dataset.d; store.set("cfg", cfg); syncTurnos(); renderRobot(); });
+  { const t = turnosState(); document.getElementById("trnLast").innerHTML = t.lastT ? 'Última análise (' + new Date(t.lastT).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) + '): ' + t.last : ''; } document.getElementById("brkMaxLoss").value = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10; document.getElementById("brkMaxLosses").value = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
   document.querySelector('label[for="brkMaxLoss"]').textContent = "Perda máxima por dia" + (cur ? " (" + cur + ")" : "");
   document.getElementById("brkPanic").disabled = !a.crypto;
   document.querySelector('label[for="brkQuote"]').textContent = "Valor por operação" + (cur ? " (" + cur + ")" : "");
@@ -1212,6 +1229,8 @@ document.getElementById("brkSave").onclick = () => {
 };
 document.getElementById("brkDel").onclick = () => { if (window.Android && Android.brokerClear) Android.brokerClear(); renderRobot(); brkMsg("Chave apagada deste modo."); };
 document.getElementById("brkQuote").onchange = e => { const v = +e.target.value; if (v > 0) { cfg.robotQuote = v; syncWatch(); renderRobot(); } };
+document.getElementById("trnOn").onchange = e => { cfg.turnos = e.target.checked; store.set("cfg", cfg); syncTurnos(); renderLive();
+  toast(cfg.turnos ? "⏰ Turnos ligados: análise às 11h e às 23h" : "Turnos desligados"); };
 document.getElementById("brkOco").onchange = e => { cfg.robotOco = e.target.checked; syncWatch(); };
 document.getElementById("brkMaxLoss").onchange = e => { cfg.robotMaxLoss = Math.max(0, +e.target.value || 0); syncWatch(); };
 document.getElementById("brkMaxLossAll").onchange = e => { cfg.robotMaxLossAll = Math.max(0, +e.target.value || 0); syncWatch(); };
@@ -1233,13 +1252,38 @@ document.getElementById("brkRobot").onclick = () => {
   brkMsg(w.robot ? "🤖 Robô ligado em " + parts(a).t + " · " + curTf().label + ". Ele entra e sai sozinho, mesmo com o app fechado." : "Robô desligado.");
 };
 
+function mapW(w) { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: curExit(w.id, w.tf), short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)), robot: !!w.robot, robotQuote: cfg.robotQuote || 50, oco: cfg.robotOco !== false, maxLoss: cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, maxLosses: cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3,
+    maxLossAll: cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30, maxOpen: cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10 }); }
 function syncWatch() {
   store.set("cfg", cfg);
-  const list = cfg.watch.filter(w => !binanceOnly() || w.src === "binance").map(w => { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: curExit(w.id, w.tf), short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)), robot: !!w.robot, robotQuote: cfg.robotQuote || 50, oco: cfg.robotOco !== false, maxLoss: cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, maxLosses: cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3,
-    maxLossAll: cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30, maxOpen: cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10 }); });
+  const list = cfg.watch.filter(w => !binanceOnly() || w.src === "binance").map(mapW);
   if (window.Android && Android.setWatch) Android.setWatch(JSON.stringify(list));
-  renderWatch();
+  renderWatch(); syncTurnos();
 }
+// ================= TURNOS AUTOMÁTICOS =================
+function syncTurnos() {
+  if (!(window.Android && Android.setTurnos)) return;
+  const tpl = mapW({ id: "BTCUSDT", tf: "15m", src: "binance", robot: true }); ["id", "tf", "name", "strat", "stratName", "exit"].forEach(k => delete tpl[k]);
+  Android.setTurnos(JSON.stringify({ on: !!cfg.turnos, days: cfg.turnoDays || 15, minHit: 75, minFreq: cfg.minFreq != null ? cfg.minFreq : 1, topN: Math.min(10, cfg.robotTopN || 10),
+    quote: cfg.repQuote || "USDT", coins: assets().filter(a => a.crypto && a.id.endsWith(cfg.repQuote || "USDT")).map(a => ({ id: a.id, name: parts(a).t })),
+    tfs: ["5m", "15m", "30m", "60m"], strats: STRATS.filter(s => !s.intradayOnly), tpl }));
+}
+function turnosState() { try { return JSON.parse(Android.turnosStatus()); } catch (e) { return { on: false }; } }
+// a análise do turno pode ter trocado os robôs: traz a lista da vigia para o app
+function pullWatch() {
+  if (!(window.Android && Android.getWatch)) return false;
+  let sv; try { sv = JSON.parse(Android.getWatch()); } catch (e) { return false; }
+  let changed = false; const keys = new Set();
+  for (const w of sv) { if (w.src !== "binance") continue; const k = w.id + "|" + w.tf; keys.add(k);
+    let c = cfg.watch.find(x => x.id === w.id && x.tf === w.tf);
+    if (!c) { c = { id: w.id, tf: w.tf, name: w.name, src: "binance", dec: 2, b3: false, cur: w.cur }; cfg.watch.push(c); changed = true; }
+    for (const f of ["robot", "auto", "hit"]) if (c[f] !== w[f]) { c[f] = w[f]; changed = true; }
+    if (w.strat && w.strat.id) { cfg.strat = cfg.strat || {}; cfg.exitBy = cfg.exitBy || {}; if (cfg.strat[k] !== w.strat.id) { cfg.strat[k] = w.strat.id; changed = true; } if (w.exit && cfg.exitBy[k] !== w.exit) { cfg.exitBy[k] = w.exit; changed = true; } } }
+  const before = cfg.watch.length; cfg.watch = cfg.watch.filter(w => w.src !== "binance" || !w.auto || keys.has(w.id + "|" + w.tf)); if (cfg.watch.length !== before) changed = true;
+  if (changed) store.set("cfg", cfg);
+  return changed;
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && pullWatch()) { renderWatch(); renderLive(); if (data) render(); } });
 function renderWatch() {
   const box = document.getElementById("watchList"), on = isWatched(cfg.asset, cfg.tf);
   document.getElementById("watchBtn").textContent = on ? "🔔" : "🔕";
@@ -1633,7 +1677,8 @@ setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && !a
 setInterval(() => { const a = curAsset(); if (cfg.auto && !document.hidden && (a.crypto || !marketOpen(a))) refresh(true); }, 120000);
 if (!cfg.top10) { cfg.robotTopN = 10; if (cfg.robotMaxOpen != null && cfg.robotMaxOpen < 10) cfg.robotMaxOpen = 10; cfg.top10 = true; store.set("cfg", cfg); }
 if (binanceOnly() && !curAsset().crypto) { cfg.asset = "BTCUSDT"; store.set("cfg", cfg); }
-buildUi(); sizeCanvas(); draw(); refresh(); if (cfg.watch.length) syncWatch(); syncScan();
+pullWatch();
+buildUi(); sizeCanvas(); draw(); refresh(); if (cfg.watch.length) syncWatch(); syncScan(); syncTurnos();
 window.app = { analyze, backtest, candlePattern, refresh, get data() { return data; }, get an() { return an; } };
 </script>
 </body>

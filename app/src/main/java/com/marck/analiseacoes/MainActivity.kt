@@ -97,6 +97,16 @@ class MainActivity : Activity() {
         fun brokerInfo(): String = Broker.info(this@MainActivity).toString()
 
         @JavascriptInterface
+        fun setTurnos(json: String) { Turnos.save(this@MainActivity, json); Watches.apply(this@MainActivity) }
+
+        @JavascriptInterface
+        fun turnosStatus(): String = Turnos.status(this@MainActivity)
+
+        /** Lista da vigia como está no serviço (a análise do turno pode ter trocado os robôs). */
+        @JavascriptInterface
+        fun getWatch(): String = getSharedPreferences("vigia", MODE_PRIVATE).getString("list", "[]") ?: "[]"
+
+        @JavascriptInterface
         fun setScan(json: String) { Scanner.save(this@MainActivity, json); Watches.apply(this@MainActivity) }
 
         @JavascriptInterface

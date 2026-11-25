@@ -183,6 +183,9 @@ object Broker {
         sp(ctx).edit().putString("log", a.toString()).apply()
     }
 
+    /** Criptos em que o robô está comprado agora, neste modo. */
+    fun openSymbols(ctx: Context): List<String> { val pre = "pos_${mode(ctx)}_"; return sp(ctx).all.filter { it.key.startsWith(pre) && it.value == true }.map { it.key.removePrefix(pre) } }
+
     /** Quantos robôs estão comprados agora neste modo. */
     fun openCount(ctx: Context): Int { val pre = "pos_${mode(ctx)}_"; return sp(ctx).all.count { it.key.startsWith(pre) && it.value == true } }
 

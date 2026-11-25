@@ -48,7 +48,7 @@ object Watches {
 
     fun apply(ctx: Context) {
         val i = Intent(ctx, MonitorService::class.java)
-        if (load(ctx).isEmpty() && !Scanner.enabled(ctx)) ctx.stopService(i)
+        if (load(ctx).isEmpty() && !Scanner.enabled(ctx) && !Turnos.enabled(ctx)) ctx.stopService(i)
         else if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
     }
 }
@@ -83,7 +83,8 @@ class MonitorService : Service() {
     private fun loop() {
         while (running) {
             val list = Watches.load(this)
-            if (list.isEmpty() && !Scanner.enabled(this)) { stopSelf(); return }
+            if (list.isEmpty() && !Scanner.enabled(this) && !Turnos.enabled(this)) { stopSelf(); return }
+            runCatching { Turnos.tick(this, { get(it) }, { k, t, x -> send(k, t, x) }) { getSystemService(NotificationManager::class.java).notify(1, status("📊 Análise do turno: $it")) } }
             if (Scanner.due(this)) runCatching { dailyReport() }
             var ok = 0
             for (w in list) if (runCatching { check(w) }.isSuccess) ok++
@@ -253,6 +254,7 @@ class MonitorService : Service() {
         sentPrefs.edit().putStringSet("k", sent + key).apply() // marca antes, para nunca mandar a mesma ordem duas vezes
         try {
             if (e.entry && e.dir > 0 && !Broker.inPosition(this, w.id)) {
+                if (Turnos.paused(this)) return // pausa para análise: sem novas entradas
                 val (pnl, seq) = Broker.today(this, w.id); val day = java.text.SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())
                 if (w.maxLoss > 0 && -pnl >= w.maxLoss) { send("robo|pausa|${w.id}|$day", "⏸ Robô pausado hoje · ${w.name}", "Chegou no limite de perda do dia (${fmtQ(-pnl, w)}). Volta a operar amanhã."); return }
                 if (w.maxLossAll > 0 && -Broker.todayAll(this) >= w.maxLossAll) { send("robo|pausaTodos|$day", "⏸ Todos os robôs pausados hoje", "A soma das perdas de hoje chegou no limite geral (${fmtQ(w.maxLossAll, w)}). Voltam a operar amanhã."); return }
