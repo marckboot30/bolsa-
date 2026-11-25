@@ -1073,10 +1073,10 @@ function draw() {
         for (let j = 0; j < o.mv.length; j++) { const mv = o.mv[j], i = cs.findIndex(c => mv.t >= c.t * 1000 && mv.t < c.t * 1000 + span), x = i < 0 ? X(end - 1) : Math.max(xE, X(Math.max(i, start))), y = Math.max(padT, Math.min(H - padB, Y(mv[key])));
           if (first) { g.moveTo(x, y); first = false; } else { g.lineTo(x, py); g.lineTo(x, y); } py = y; }
         g.lineTo(W - padR, py); g.stroke(); }
-      const tag = o.ph >= 2 ? " 🚀" : o.ph === 1 ? " 🔒" : "";
+      const tag = o.noStop ? " ⚠️ ainda não está na Binance" : o.ph >= 2 ? " 🚀" : o.ph === 1 ? " 🔒" : "";
       rl(o.price, "#c084fc", "🤖 ENTRADA " + fmt(o.price, asset), [6, 3]);
       if (o.tp) rl(o.tp, "#26c281", "🎯 GAIN " + fmt(o.tp, asset) + " (" + ms(m(o.tp)) + ")" + tag, [5, 3], 2);
-      if (o.sl) rl(o.sl, o.sl > o.price ? "#ffd166" : "#ff5468", (o.sl > o.price ? "🔒 STOP NO LUCRO " : "🛑 STOP ") + fmt(o.sl, asset) + " (" + ms(m(o.sl)) + ")", [5, 3], 2); }
+      if (o.sl) rl(o.sl, o.sl > o.price ? "#ffd166" : "#ff5468", (o.sl > o.price ? "🔒 STOP NO LUCRO " : "🛑 STOP ") + fmt(o.sl, asset) + " (" + ms(m(o.sl)) + ")" + (o.noStop ? " ⚠️" : ""), [5, 3], 2); }
     for (const o of R.mine) { const i = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span); if (i < start || i >= end || o.price > hi || o.price < lo) continue;
       const x = X(i), y = Y(o.price); g.beginPath(); g.arc(x, y, 6, 0, 7); g.fillStyle = o.side === "BUY" ? "#1f9e6a" : "#d9414f"; g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.stroke();
       g.font = "bold 10px system-ui"; g.textAlign = "center"; g.textBaseline = o.side === "BUY" ? "top" : "bottom"; g.fillStyle = "#e9d5ff"; g.fillText(o.side === "BUY" ? "🤖 C" : "🤖 V", x, o.side === "BUY" ? y + 9 : y - 9); } }
@@ -1148,6 +1148,8 @@ function robotState(a, tf) {
   const trips = []; for (let i = 0; i < mine.length; i++) if (mine[i].side === "SELL") { const b = mine.slice(i + 1).find(o => o.side === "BUY"); if (b) trips.push({ buy: b, sell: mine[i], r: mine[i].quote - b.quote, pct: (mine[i].price / b.price - 1) * 100 }); }
   const err = robotLog().find(o => o.symbol === a.id && o.side === "ERRO");
   if (open && st.slot && st.slot.tp) open = Object.assign({}, open, { tp: st.slot.tp, sl: st.slot.sl, mv: st.slot.mv || [], ph: st.slot.ph || 0, peak: st.slot.peak || 0 });
+  else if (open && st.slot) { const me = moneyExit(); open = Object.assign({}, open, { noStop: true, err: st.slot.err || "",
+    tp: me ? open.price * (1 + me.tpPct) : null, sl: me ? open.price * (1 - me.slPct) : null }); }
   return { st, mine, open, lastBuy, trips, err };
 }
 const livePx = {}; let liveAdj = null;
@@ -1187,7 +1189,7 @@ function renderLive() {
     } else pill = '<span class="pill">' + (w.off ? "DESLIGADO" : paused ? "⏸ PAUSADO" : "FORA") + '</span>';
     const tfl = (TFS.find(x => x.id === w.tf) || {}).label || w.tf;
     let sub2 = curStrat(w.id, w.tf).name + (w.hit ? ' · 🎯' + w.hit + '%' : '');
-    if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · ' + (R.open.sl > R.open.price ? '🔒 ' : '🛑 ') + fmt(R.open.sl, a) + (R.open.ph >= 2 ? ' 🚀' : '') : '');
+    if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · ' + (R.open.sl > R.open.price ? '🔒 ' : '🛑 ') + fmt(R.open.sl, a) + (R.open.ph >= 2 ? ' 🚀' : '') : '') + (R.open.noStop ? ' · <b class="down">⚠️ sem stop na Binance' + (R.open.err ? ': ' + R.open.err : ' (tentando colocar)') + '</b>' : '');
     const row = '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b> <span class="tag">' + tfl + '</span><small>' + sub2 + '</small></div>' +
       '<div class="rt">' + pill + nowMoney + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small>' +
       (R.open ? '<div class="lbtns">' + (R.open.tf ? '<button class="lclose" data-adj="' + w.id + '|' + R.open.tf + '">⚙ Ajustar</button>' : '') + '<button class="lclose" data-close="' + w.id + '|' + (R.open.tf || "") + '">✕ Encerrar</button></div>' : '') + '</div></div>' +

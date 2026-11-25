@@ -251,8 +251,9 @@ class MonitorService : Service() {
     /** Stop móvel: trava parte do lucro e, com volume forte, deixa o lucro correr. */
     private fun trail(w: Watch, cs: List<Candle>) {
         val p = w.prot; val lockOn = p.optBoolean("lockOn", true); val runOn = p.optBoolean("runOn", true)
+        val sl0 = Broker.slot(this, "${w.id}|${w.tf}") ?: return
+        if (!sl0.has("oco")) { if (w.oco) heal(w, sl0, cs); return }
         if (!lockOn && !runOn) return
-        val sl0 = Broker.slot(this, "${w.id}|${w.tf}") ?: return; if (!sl0.has("oco")) return
         val q = sl0.optDouble("quote"); val qty = sl0.optDouble("qty"); val pr = sl0.optDouble("price"); if (q <= 0 || qty <= 0 || pr <= 0) return
         val fees = q * 0.002
         val px = { m: Double -> pr * (1 + (m + fees) / q) }
@@ -281,6 +282,23 @@ class MonitorService : Service() {
         if (Broker.robotMove(this, w.id, w.tf, tp, sl, JSONObject().put("ph", ph).put("peak", peak)))
             send("robo|${w.id}|${w.tf}|mv|${System.currentTimeMillis() / 60000}", "$why · ${w.name} · ${tfName(w.tf)}",
                 "Lucro agora ${fmtQ(pnl, w)}. Stop garante ${fmtQ(money(sl), w)}, alvo em ${fmtQ(money(tp), w)}.")
+    }
+
+    /** Comprou sem alvo/stop na Binance? Tenta colocar de novo a cada conferida e mostra o motivo se não der. */
+    private fun heal(w: Watch, sl0: JSONObject, cs: List<Candle>) {
+        val q = sl0.optDouble("quote"); val pr = sl0.optDouble("price"); if (q <= 0 || pr <= 0) return
+        val fees = q * 0.002
+        val a = Strategies.atr(cs, 14); val k = cs.size - 1; val at = if (a[k].isNaN()) cs[k].h - cs[k].l else a[k]
+        val (tk, sk) = when (w.exit) { "atr" -> Pair(1.0, 2.0); "atr2" -> Pair(2.0, 1.0); else -> Pair(4.0, 2.0) }
+        var tp = pr + tk * at; var sl = pr - sk * at
+        if (w.tpMoney > 0) tp = pr * (1 + (w.tpMoney + fees) / q)
+        if (w.slMoney > 0) sl = pr * (1 - maxOf(0.0005, (w.slMoney - fees) / q))
+        val now = runCatching { JSONObject(get("https://api.binance.com/api/v3/ticker/price?symbol=${w.id}")).getString("price").toDouble() }.getOrDefault(pr)
+        if (tp <= now * 1.0015) tp = now * 1.0015; if (sl >= now * 0.9985) sl = now * 0.9985
+        try { Broker.robotProtect(this, w.id, w.tf, tp, sl); Broker.slotPut(this, w.id, w.tf, JSONObject().put("err", ""))
+            send("robo|${w.id}|${w.tf}|heal|${sl0.optLong("t")}", "🛡 Alvo e stop colocados · ${w.name} · ${tfName(w.tf)}", "Agora a operação está protegida na Binance.")
+        } catch (x: Exception) { val m = x.message ?: "falha"; Broker.slotPut(this, w.id, w.tf, JSONObject().put("err", m))
+            send("robo|${w.id}|${w.tf}|semstop|${sl0.optLong("t")}", "⚠️ Sem stop na Binance · ${w.name} · ${tfName(w.tf)}", "$m O app vai tentar de novo a cada 30 s.") }
     }
 
     /** Volume do candle atual (ou do último fechado) ≥ N× a média dos 20 anteriores e preço acima da média 9. */
