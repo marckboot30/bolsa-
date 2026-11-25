@@ -11,8 +11,9 @@ android {
         applicationId = "com.marck.analiseacoes"
         minSdk = 26
         targetSdk = 35
-        versionCode = 35
-        versionName = "1.34"
+        // número da compilação no GitHub (= número da versão "vNN"), para o app saber se há versão nova
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 36
+        versionName = "v" + (System.getenv("GITHUB_RUN_NUMBER") ?: "36")
     }
 
     // Assinatura fixa: as próximas versões instalam por cima

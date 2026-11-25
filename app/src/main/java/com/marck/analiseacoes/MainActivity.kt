@@ -97,6 +97,34 @@ class MainActivity : Activity() {
         fun brokerInfo(): String = Broker.info(this@MainActivity).toString()
 
         @JavascriptInterface
+        fun appVersion(): String = Updater.current(this@MainActivity).toString()
+
+        /** Confere se há versão nova; responde em window.onUpdCheck(base64) */
+        @JavascriptInterface
+        fun checkUpdate() {
+            thread {
+                val r = runCatching { Updater.check(this@MainActivity).toString() }.getOrElse { "{\"error\":true}" }
+                val b = Base64.encodeToString(r.toByteArray(), Base64.NO_WRAP)
+                runOnUiThread { web.evaluateJavascript("window.onUpdCheck && window.onUpdCheck('$b')", null) }
+            }
+        }
+
+        /** Baixa e abre o instalador; progresso em window.onUpdProgress(pct, msg) */
+        @JavascriptInterface
+        fun installUpdate(url: String) {
+            if (!Updater.canInstall(this@MainActivity)) { runOnUiThread { web.evaluateJavascript("window.onUpdProgress && window.onUpdProgress(-2, '')", null) }; return }
+            thread {
+                try {
+                    Updater.install(this@MainActivity, url) { p -> runOnUiThread { web.evaluateJavascript("window.onUpdProgress && window.onUpdProgress($p, '')", null) } }
+                    runOnUiThread { web.evaluateJavascript("window.onUpdProgress && window.onUpdProgress(101, '')", null) }
+                } catch (e: Exception) {
+                    val m = (e.message ?: "falha").replace("'", " ")
+                    runOnUiThread { web.evaluateJavascript("window.onUpdProgress && window.onUpdProgress(-1, '$m')", null) }
+                }
+            }
+        }
+
+        @JavascriptInterface
         fun setTurnos(json: String) { Turnos.save(this@MainActivity, json); Watches.apply(this@MainActivity) }
 
         @JavascriptInterface

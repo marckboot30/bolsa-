@@ -75,6 +75,10 @@
   .star.fav { color: #ffd166; }
   .gh { font-size: 12px; font-weight: 800; color: #8a94a6; text-transform: uppercase; letter-spacing: .5px; margin: 12px 8px 4px; }
   .hidden { display: none !important; }
+  #updBar { margin: 6px 10px 0; padding: 10px 12px; border-radius: 14px; background: linear-gradient(90deg,rgba(43,108,255,.22),rgba(155,107,255,.22)); border: 1px solid #2b6cff; display: flex; align-items: center; gap: 10px; }
+  #updBar .tx { flex: 1; font-size: 13px; } #updBar b { font-size: 14px; }
+  #updBar button { height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: #2b6cff; color: #fff; font-weight: 800; font-size: 14px; }
+  #updBar .bar { height: 6px; border-radius: 3px; background: #1c2433; overflow: hidden; margin-top: 6px; } #updBar .bar div { height: 100%; background: #4da3ff; width: 0; transition: width .2s; }
   #opt { background: rgba(5,8,14,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); align-items: stretch; }
   #opt .box { height: 100%; max-height: 100vh; border-radius: 0; background: rgba(16,21,31,.8); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding-top: 14px; }
   .optTop { display: flex; align-items: center; gap: 8px; position: sticky; top: -14px; z-index: 2; background: rgba(16,21,31,.95); margin: -14px -18px 10px; padding: 12px 18px; border-bottom: 1px solid #1c2433; }
@@ -165,7 +169,8 @@
   <button class="iconbtn" id="cfgBtn" title="Ajustes">⚙</button>
 </header>
 <div class="tf" id="tfs"></div>
-<div style="padding:0 12px 8px"><button class="primary" id="optOpen" style="margin:0;height:44px;background:linear-gradient(90deg,#2b6cff,#8a4dff)">🔬 Descobrir a melhor estratégia</button></div>
+<div style="padding:0 12px 8px"><div id="updBar" class="hidden" style="margin:0 12px 8px"></div>
+<button class="primary" id="optOpen" style="margin:0;height:44px;background:linear-gradient(90deg,#2b6cff,#8a4dff)">🔬 Descobrir a melhor estratégia</button></div>
 <div class="price"><b id="last">—</b><span id="chg" class="mut"></span><span id="liveTag" class="live" style="margin-left:auto"><span class="dot"></span><span id="liveTxt">—</span></span></div>
 <div class="status" id="asof" style="text-align:right;padding-bottom:4px"></div>
 <div id="chartWrap">
@@ -265,7 +270,8 @@
 <div class="sheet" id="menu"><div class="box">
   <div class="top" style="display:flex;align-items:center;gap:8px"><h2 style="flex:1;margin:0">O que mostrar</h2><button class="iconbtn" id="menuClose">✕</button></div>
   <button class="primary" id="repOpen" style="margin:10px 0 0;height:46px;background:linear-gradient(90deg,#1f9e6a,#2b6cff)">📊 Relatório das criptos (melhores do dia)</button>
-  <button class="chip" id="refreshBtn" style="width:100%;height:42px;margin:8px 0 4px">⟳ Atualizar agora</button>
+  <button class="chip" id="refreshBtn" style="width:100%;height:42px;margin:8px 0 4px">⟳ Atualizar o gráfico agora</button>
+  <button class="chip" id="updCheck" style="width:100%;height:42px;margin:0 0 4px">⬆️ Procurar nova versão do app <span class="mut" id="appVer"></span></button>
   <label>No gráfico</label><div id="menuChart"></div>
   <label>Ativos</label><div class="sw"><span>Mostrar ações e mini índice (só análise; o robô opera só cripto na Binance)</span><input type="checkbox" id="menuStocks"></div>
   <label>Na tela</label><div id="menuCards"></div>
@@ -1422,6 +1428,27 @@ function syncWatch() {
   if (window.Android && Android.setWatch) Android.setWatch(JSON.stringify(list));
   renderWatch(); syncTurnos();
 }
+// ================= ATUALIZAÇÃO DO APP =================
+let updInfo = null, updManual = false;
+function showUpd(html) { const b = document.getElementById("updBar"); b.innerHTML = html; b.classList.remove("hidden"); }
+window.onUpdCheck = b64 => { let r; try { r = JSON.parse(decodeURIComponent(escape(atob(b64)))); } catch (e) { return; }
+  if (r.error) { if (updManual) toast("Não consegui verificar agora. Confira a internet."); return; }
+  updInfo = r;
+  if (r.available) showUpd('<div class="tx"><b>⬆️ Nova versão: v' + r.latest + '</b><br><span class="mut">Você está na v' + r.current + '. Atualiza em 2 toques.</span></div><button id="updGo">Atualizar</button>');
+  else if (updManual) toast("✅ Você já está na versão mais nova (v" + r.current + ").");
+  const g = document.getElementById("updGo"); if (g) g.onclick = () => { Android.installUpdate(r.url); showUpd('<div class="tx"><b>⬇️ Baixando a v' + r.latest + '…</b><div class="bar"><div id="updFill"></div></div></div>'); };
+};
+window.onUpdProgress = (p, msg) => {
+  if (p === -2) { showUpd('<div class="tx"><b>Falta uma permissão</b><br><span class="mut">Na tela que abriu, ligue <b>"Permitir desta fonte"</b> e volte aqui.</span></div><button id="updGo2">Tentar de novo</button>');
+    document.getElementById("updGo2").onclick = () => { Android.installUpdate(updInfo.url); showUpd('<div class="tx"><b>⬇️ Baixando…</b><div class="bar"><div id="updFill"></div></div></div>'); }; return; }
+  if (p === -1) { showUpd('<div class="tx"><b>⚠️ Não deu para atualizar</b><br><span class="mut">' + msg + '</span></div><button id="updGo2">Tentar de novo</button>'); document.getElementById("updGo2").onclick = () => window.onUpdCheck(btoa(unescape(encodeURIComponent(JSON.stringify(updInfo))))) || Android.installUpdate(updInfo.url); return; }
+  if (p === 101) { showUpd('<div class="tx"><b>✅ Baixado!</b><br><span class="mut">Toque em <b>Atualizar</b> na tela do Android. O app reabre já na versão nova.</span></div>'); return; }
+  const f = document.getElementById("updFill"); if (f) f.style.width = p + "%";
+};
+function checkUpd(manual) { if (!(window.Android && Android.checkUpdate)) { if (manual) toast("Só funciona no app do celular."); return; } updManual = !!manual; Android.checkUpdate(); }
+document.getElementById("updCheck").onclick = () => { document.getElementById("menu").classList.remove("open"); checkUpd(true); };
+setTimeout(() => checkUpd(false), 4000);
+setInterval(() => { if (!document.hidden) checkUpd(false); }, 6 * 3600000);
 // ================= HISTÓRICO =================
 let histPeriod = "7";
 function histTrips(mode) {
@@ -1869,7 +1896,7 @@ document.getElementById("repRun").onclick = () => {
 document.getElementById("menuStocks").onchange = e => { cfg.showStocks = e.target.checked; store.set("cfg", cfg);
   if (binanceOnly() && !curAsset().crypto) { cfg.asset = "BTCUSDT"; data = null; stopStream(); }
   syncWatch(); buildUi(); draw(); refresh(); };
-document.getElementById("menuBtn").onclick = () => { document.getElementById("menuStocks").checked = !!cfg.showStocks; renderMenu(); document.getElementById("menu").classList.add("open"); };
+document.getElementById("menuBtn").onclick = () => { try { document.getElementById("appVer").textContent = "(você está na v" + Android.appVersion() + ")"; } catch (e) {} document.getElementById("menuStocks").checked = !!cfg.showStocks; renderMenu(); document.getElementById("menu").classList.add("open"); };
 document.getElementById("menuClose").onclick = () => document.getElementById("menu").classList.remove("open");
 document.getElementById("menu").addEventListener("click", e => { if (e.target.id === "menu") e.target.classList.remove("open"); });
 
