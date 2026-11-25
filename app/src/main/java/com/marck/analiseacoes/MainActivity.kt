@@ -139,6 +139,7 @@ class MainActivity : Activity() {
                     when (action) {
                         "account" -> Broker.account(this@MainActivity).toString()
                         "buy" -> Broker.buy(this@MainActivity, symbol, amount, "compra manual").also { Broker.setPosition(this@MainActivity, symbol, true) }.toString()
+                        "adjust" -> { val p = symbol.split("|"); Broker.robotAdjust(this@MainActivity, p[0], p[1], p[2].toDouble(), p[3].toDouble()).toString() }
                         "close" -> { val sym = symbol.substringBefore("|"); val tf = symbol.substringAfter("|", "")
                             (Broker.robotClose(this@MainActivity, sym, tf, "encerrada manualmente")?.toString() ?: "{\"none\":true}") }
                         "panic" -> { Broker.cancelAll(this@MainActivity, symbol); Broker.clearSlots(this@MainActivity, symbol); (Broker.sellAll(this@MainActivity, symbol, "🚨 venda de pânico")?.toString() ?: "{\"none\":true}").also { Broker.setPosition(this@MainActivity, symbol, false) } }

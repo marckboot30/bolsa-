@@ -242,6 +242,21 @@ object Broker {
         setSlot(ctx, key, sl0.put("oco", r.optLong("orderListId")).put("tp", tp).put("sl", sl))
     }
 
+    /** Ajusta na mão o ganho e a perda (em dinheiro, líquido de ~0,2% de taxas) da operação deste robô. */
+    fun robotAdjust(ctx: Context, symbol: String, tf: String, tpMoney: Double, slMoney: Double): JSONObject {
+        val key = "$symbol|$tf"; val sl0 = slot(ctx, key) ?: throw BinanceError(0, "Esse robô não está comprado.")
+        val pr = sl0.optDouble("price"); val q = sl0.optDouble("quote"); val fees = q * 0.002
+        if (pr <= 0 || q <= 0) throw BinanceError(0, "Não achei o preço de entrada dessa operação.")
+        val tp = pr * (1 + (tpMoney + fees) / q); val sl = pr * (1 - maxOf(0.0005, (slMoney - fees) / q))
+        if (sl0.has("oco")) { cancelOco(ctx, symbol, sl0.getLong("oco")); sl0.remove("oco"); setSlot(ctx, key, sl0) }
+        robotProtect(ctx, symbol, tf, tp, sl)
+        // atualiza a compra no registro (para o painel e o gráfico mostrarem as novas linhas)
+        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray())
+        for (i in 0 until a.length()) { val o = a.getJSONObject(i); if (o.optString("symbol") == symbol && o.optString("tf") == tf && o.optString("side") == "BUY") { o.put("tp", tp).put("sl", sl).put("tpM", tpMoney).put("slM", slMoney); break } }
+        sp(ctx).edit().putString("log", a.toString()).apply()
+        return JSONObject().put("tp", tp).put("sl", sl)
+    }
+
     private fun cancelOco(ctx: Context, symbol: String, listId: Long) {
         try { signed(ctx, "DELETE", "/api/v3/orderList", mapOf("symbol" to symbol, "orderListId" to listId.toString())) } catch (e: BinanceError) { if (e.code != -2011) throw e }
     }

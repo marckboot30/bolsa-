@@ -95,6 +95,9 @@
   .lchip.on .logo { box-shadow: 0 0 0 2px #2b6cff; }
   .lchip i { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%; background: #26c281; border: 2px solid #141a25; }
   .lchip i.pz { background: #ffc531; } .lchip i.of { background: #6f7a8d; }
+  .lbtns { display: flex; gap: 4px; justify-content: flex-end; margin-top: 4px; } .lbtns .lclose { margin: 0; }
+  .adjBox { margin: 0 0 8px 37px; padding: 8px 10px; border-radius: 10px; background: #0f141d; border: 1px solid #263042; }
+  .adjBox .rbRow label { font-size: 12px !important; } .adjBox input.sm { width: 90px !important; height: 34px !important; text-align: right; border-radius: 8px; border: 1px solid #263042; background: #0b0e14; padding: 0 8px; font-size: 14px; }
   .lclose { display: block; margin: 4px 0 0 auto; height: 24px; padding: 0 8px; border-radius: 7px; border: 1px solid #3a4459; background: none; color: #c9d1dd; font-size: 11px; font-weight: 800; }
   .lclose.sure { border-color: #d9414f; background: #d9414f; color: #fff; }
   .pill { display: inline-block; font-size: 11px; font-weight: 900; padding: 3px 8px; border-radius: 8px; background: #263042; color: #b9c1cf; }
@@ -1071,7 +1074,14 @@ function robotState(a, tf) {
   const err = robotLog().find(o => o.symbol === a.id && o.side === "ERRO");
   return { st, mine, open, lastBuy, trips, err };
 }
-const livePx = {};
+const livePx = {}; let liveAdj = null;
+function adjBox(a, o) {
+  const fees = o.quote * .002, tpM = o.tpM != null ? o.tpM : o.tp ? Math.max(0, (o.tp / o.price - 1) * o.quote - fees) : (cfg.robotTpM || 1),
+    slM = o.slM != null ? o.slM : o.sl ? Math.max(0, (1 - o.sl / o.price) * o.quote + fees) : (cfg.robotSlM || 1);
+  return '<div class="adjBox"><div class="rbRow"><label>💰 Encerrar com lucro de</label><input type="number" id="adjTp" min="0.1" step="0.5" value="' + tpM.toFixed(2) + '" class="sm"></div>' +
+    '<div class="rbRow"><label>🛑 Encerrar com perda de</label><input type="number" id="adjSl" min="0.1" step="0.5" value="' + slM.toFixed(2) + '" class="sm"></div>' +
+    '<p class="mut" style="font-size:11px;margin:0 0 6px">Valores líquidos (já com as taxas). A Binance fecha sozinha no que bater primeiro.</p><button class="primary" id="adjGo" style="margin:0;height:38px">Salvar</button></div>';
+}
 function robotRows() {
   const rs = cfg.watch.filter(w => w.robot && w.src === "binance");
   const a = curAsset(); if (a.crypto && !rs.some(w => w.id === a.id)) { const R = robotState(a); if (R.open) rs.push({ id: a.id, tf: cfg.tf, off: true }); }
@@ -1104,7 +1114,8 @@ function renderLive() {
     if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · 🛑 ' + fmt(R.open.sl, a) : '');
     const row = '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b> <span class="tag">' + tfl + '</span><small>' + sub2 + '</small></div>' +
       '<div class="rt">' + pill + nowMoney + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small>' +
-      (R.open ? '<button class="lclose" data-close="' + w.id + '|' + (R.open.tf || "") + '">✕ Encerrar</button>' : '') + '</div></div>';
+      (R.open ? '<div class="lbtns">' + (R.open.tf ? '<button class="lclose" data-adj="' + w.id + '|' + R.open.tf + '">⚙ Ajustar</button>' : '') + '<button class="lclose" data-close="' + w.id + '|' + (R.open.tf || "") + '">✕ Encerrar</button></div>' : '') + '</div></div>' +
+      (R.open && liveAdj === w.id + "|" + R.open.tf ? adjBox(a, R.open) : '');
     rows += row; if (R.open) openRows += row;
     else chips += '<div class="lchip' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '" title="' + parts(a).t + '">' + logo(a) + '<i class="' + (paused ? "pz" : w.off ? "of" : "") + '"></i></div>';
   }
@@ -1118,6 +1129,14 @@ function renderLive() {
   el.querySelectorAll(".lchip").forEach(c => c.onclick = () => { if (c.dataset.id !== cfg.asset || c.dataset.tf !== cfg.tf) openFrom(c.dataset.id, c.dataset.tf); });
   if (exp) el.insertAdjacentHTML("beforeend", rs.some(w => w.robot) ? '<button class="rbPanic" id="liveOff" style="height:32px;margin-top:6px;border-color:#263042;color:#b9c1cf;background:none">⏹ Desligar todos os robôs</button>' : '');
   const off = document.getElementById("liveOff"); if (off) off.onclick = () => { cfg.watch.forEach(w => { if (w.src === "binance") w.robot = false; }); syncWatch(); renderLive(); toast("Robôs desligados. Posições abertas continuam com alvo e stop na Binance."); };
+  el.querySelectorAll("[data-adj]").forEach(b => b.onclick = ev => { ev.stopPropagation(); liveAdj = liveAdj === b.dataset.adj ? null : b.dataset.adj; renderLive(); });
+  const ad = document.getElementById("adjGo");
+  if (ad) ad.onclick = ev => { ev.stopPropagation(); const [id, tf] = liveAdj.split("|"), tp = +document.getElementById("adjTp").value, sl = +document.getElementById("adjSl").value;
+    if (!(tp > 0) || !(sl > 0)) { toast("Coloque ganho e perda maiores que zero."); return; }
+    ad.disabled = true; ad.textContent = "Enviando…";
+    brk("adjust", id + "|" + tf + "|" + tp + "|" + sl).then(() => { liveAdj = null; liveLogT = 0; toast("✅ Ajustado: fecha com +" + tp + " de lucro ou −" + sl + " de perda"); renderLive(); if (data) render(); })
+      .catch(e => { toast("⚠️ " + e.message); ad.disabled = false; ad.textContent = "Salvar"; }); };
+  el.querySelectorAll(".adjBox").forEach(x => x.onclick = ev => ev.stopPropagation());
   el.querySelectorAll("[data-close]").forEach(b => b.onclick = ev => { ev.stopPropagation(); const [id, ctf] = b.dataset.close.split("|"), a = assets().find(x => x.id === id);
     if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirmar?"; b.classList.add("sure"); setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = "✕ Encerrar"; b.classList.remove("sure"); } }, 4000); return; }
     b.disabled = true; b.textContent = "Vendendo…";
