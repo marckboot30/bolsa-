@@ -77,8 +77,20 @@ object Strategies {
         return dir
     }
 
+    /** Mínima/máxima do dia até o candle anterior e de ontem (horário de Brasília). */
+    class Levels(val dLow: DoubleArray, val dHigh: DoubleArray, val yLow: DoubleArray, val yHigh: DoubleArray, val nIn: IntArray)
+    fun levels(cs: List<Candle>, dayOf: (Long) -> Long): Levels {
+        val n = cs.size; val dL = DoubleArray(n) { Double.NaN }; val dH = DoubleArray(n) { Double.NaN }; val yL = DoubleArray(n) { Double.NaN }; val yH = DoubleArray(n) { Double.NaN }; val nIn = IntArray(n)
+        var day = Long.MIN_VALUE; var lo = Double.NaN; var hi = Double.NaN; var pLo = Double.NaN; var pHi = Double.NaN; var cnt = 0
+        for (i in 0 until n) { val d = dayOf(cs[i].t)
+            if (d != day) { if (day != Long.MIN_VALUE) { pLo = lo; pHi = hi }; day = d; lo = Double.NaN; hi = Double.NaN; cnt = 0 }
+            dL[i] = lo; dH[i] = hi; yL[i] = pLo; yH[i] = pHi; nIn[i] = cnt
+            lo = if (lo.isNaN()) cs[i].l else min(lo, cs[i].l); hi = if (hi.isNaN()) cs[i].h else max(hi, cs[i].h); cnt++ }
+        return Levels(dL, dH, yL, yH, nIn)
+    }
+
     // ---------- estratégias criadas pelo usuário ----------
-    private fun condArr(cs: List<Candle>, c: JSONObject, E: HashMap<Int, DoubleArray>, R: DoubleArray): BooleanArray {
+    private fun condArr(cs: List<Candle>, c: JSONObject, E: HashMap<Int, DoubleArray>, R: DoubleArray, L: Levels): BooleanArray {
         val n = cs.size; val C = DoubleArray(n) { cs[it].c }; val out = BooleanArray(n)
         fun e(k: Int) = E.getOrPut(k) { ema(C, k) }
         val k = c.optString("k"); val N = c.optInt("n", 9); val M = c.optInt("m", 21); val V = c.optDouble("v", 30.0); val P = c.optString("p", "EA")
@@ -98,14 +110,19 @@ object Strategies {
                 "bull" -> x.c > x.o
                 "bear" -> x.c < x.o
                 "pat" -> pattern(cs, i) == P
+                "lost_dlow" -> L.nIn[i] >= 2 && !L.dLow[i].isNaN() && x.c < L.dLow[i]
+                "reclaim_dlow" -> L.nIn[i] >= 2 && !L.dLow[i].isNaN() && x.l < L.dLow[i] && x.c > L.dLow[i]
+                "lost_ylow" -> !L.yLow[i].isNaN() && x.c < L.yLow[i]
+                "reclaim_ylow" -> !L.yLow[i].isNaN() && x.l < L.yLow[i] && x.c > L.yLow[i]
+                "break_dhigh" -> L.nIn[i] >= 2 && !L.dHigh[i].isNaN() && x.c > L.dHigh[i]
                 else -> false
             } }
         return out
     }
 
-    private fun ruleArr(cs: List<Candle>, list: org.json.JSONArray?, E: HashMap<Int, DoubleArray>, R: DoubleArray): BooleanArray {
+    private fun ruleArr(cs: List<Candle>, list: org.json.JSONArray?, E: HashMap<Int, DoubleArray>, R: DoubleArray, L: Levels): BooleanArray {
         val n = cs.size; if (list == null || list.length() == 0) return BooleanArray(n)
-        val arrs = (0 until list.length()).map { condArr(cs, list.getJSONObject(it), E, R) }
+        val arrs = (0 until list.length()).map { condArr(cs, list.getJSONObject(it), E, R, L) }
         return BooleanArray(n) { i -> arrs.all { it[i] } }
     }
 
@@ -176,9 +193,16 @@ object Strategies {
                     if (type == "ham") { if (p == "M" && okUp) d[i] = 1 else if (p == "EC" && okDn) d[i] = -1 }
                     else { if (p == "EA" && okUp) d[i] = 1 else if (p == "EB" && okDn) d[i] = -1 } }
             }
+            "sweep" -> { // falso rompimento: passa da mínima/máxima e fecha de volta para dentro
+                val L = levels(cs, dayOf); val y = st.optString("lvl") == "y"
+                for (i in 1 until n) { val x = cs[i]; val lo = if (y) L.yLow[i] else L.dLow[i]; val hi = if (y) L.yHigh[i] else L.dHigh[i]
+                    if (!y && L.nIn[i] < 3) continue
+                    if (!lo.isNaN() && x.l < lo && x.c > lo && x.c > x.o) d[i] = 1
+                    else if (!hi.isNaN() && x.h > hi && x.c < hi && x.c < x.o) d[i] = -1 }
+            }
             "custom" -> {
-                val E = HashMap<Int, DoubleArray>(); val R = rsi(c, 14)
-                val B = ruleArr(cs, st.optJSONArray("buy"), E, R); val S = ruleArr(cs, st.optJSONArray("sell"), E, R)
+                val E = HashMap<Int, DoubleArray>(); val R = rsi(c, 14); val L = levels(cs, dayOf)
+                val B = ruleArr(cs, st.optJSONArray("buy"), E, R, L); val S = ruleArr(cs, st.optJSONArray("sell"), E, R, L)
                 for (i in 1 until n) { val b = B[i] && !B[i - 1]; val v = S[i] && !S[i - 1]; if (b && !v) d[i] = 1 else if (v && !b) d[i] = -1 }
             }
             "fib" -> {

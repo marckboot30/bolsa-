@@ -208,8 +208,10 @@ class MonitorService : Service() {
             for (i in 0 until k) if (day(cs[i].t) == day(c.t)) { hi = maxOf(hi, cs[i].h); lo = minOf(lo, cs[i].l) }
             if (hi.isFinite()) {
                 val d = day(c.t)
-                if (c.c > hi) send("${w.id}|${w.tf}|bh|$d", "⬆️ Rompeu a MÁXIMA do dia · ${w.name}", "Fechou em ${fmt(c.c, w)}, acima de ${fmt(hi, w)}")
-                if (c.c < lo) send("${w.id}|${w.tf}|bl|$d", "⬇️ Perdeu a MÍNIMA do dia · ${w.name}", "Fechou em ${fmt(c.c, w)}, abaixo de ${fmt(lo, w)}")
+                // um aviso por cripto por dia (mesmo vigiando vários tempos gráficos)
+                val sent = sentPrefs.getStringSet("k", emptySet())!!
+                if (c.c > hi && "brk|${w.id}|bh|$d" !in sent) { send("brk|${w.id}|bh|$d", "", ""); send("${w.id}|${w.tf}|bh|$d", "⬆️ Rompeu a MÁXIMA do dia · ${w.name}", "Fechou em ${fmt(c.c, w)}, acima de ${fmt(hi, w)}") }
+                if (c.c < lo && "brk|${w.id}|bl|$d" !in sent) { send("brk|${w.id}|bl|$d", "", ""); send("${w.id}|${w.tf}|bl|$d", "⬇️ Perdeu a MÍNIMA do dia · ${w.name}", "Fechou em ${fmt(c.c, w)}, abaixo de ${fmt(lo, w)}") }
             }
         }
     }
@@ -297,6 +299,7 @@ class MonitorService : Service() {
         if (key in sent) return
         sent.add(key); if (sent.size > 400) { val drop = sent.take(200); sent.removeAll(drop.toSet()) }
         sentPrefs.edit().putStringSet("k", sent).apply()
+        if (title.isEmpty()) return // só marca, sem notificação
         val n = builder("sinais").setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title).setContentText(text).setStyle(Notification.BigTextStyle().bigText(text))
             .setAutoCancel(true).setContentIntent(openAt(this, key)).build()

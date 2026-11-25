@@ -243,6 +243,10 @@
   </div>
   <div id="optForm">
   <p class="mut" style="margin:0;font-size:13px">Testa <span id="optN">todas as</span> análises × 3 saídas em cada tempo gráfico, já descontando as taxas.</p>
+  <div class="card" style="margin:10px 0 0;padding:6px 10px">
+    <div class="sw" style="margin:4px 0;font-size:14px"><span>🤖 <b>Análise automática</b><br><small class="mut" id="optAutoTxt">as estratégias do app</small></span><input type="checkbox" id="optAuto"></div>
+    <div class="sw" style="margin:8px 0 4px;font-size:14px"><span>🛠 <b>Análise manual</b><br><small class="mut" id="optManTxt">as estratégias que você criou</small></span><input type="checkbox" id="optManual"></div>
+  </div>
   <div class="card" style="margin:10px 0 0;padding:10px"><div class="row" style="align-items:center"><b style="font-size:14px">🛠 Minhas estratégias</b><button class="chip" id="cstNew" style="height:32px">＋ Criar</button></div><div id="cstList"></div></div>
   <label>O que analisar</label><select id="optAsset" class="sel" style="width:100%"></select>
   <label>Período da análise</label>
@@ -608,6 +612,8 @@ const STRATS = [
   { id: "ham", type: "ham", grp: "Candles", name: "Martelo e estrela cadente a favor da média 50" },
   { id: "rsi", type: "rsi", n: 14, lo: 30, hi: 70, grp: "Osciladores", name: "IFR 14 (sobrevendido / sobrecomprado)" },
   { id: "bb", type: "bb", n: 20, k: 2, grp: "Osciladores", name: "Bandas de Bollinger (volta para dentro)" },
+  { id: "sweepd", type: "sweep", lvl: "d", grp: "Topos e fundos", name: "Falso rompimento da mínima/máxima do dia" },
+  { id: "sweepy", type: "sweep", lvl: "y", grp: "Topos e fundos", name: "Falso rompimento da mínima/máxima de ontem" },
   { id: "fib618", type: "fib", n: 30, a: .5, b: .618, grp: "Fibonacci", name: "Fibonacci: recuo até 50%–61,8% a favor da tendência" },
   { id: "fib382", type: "fib", n: 30, a: .382, b: .5, grp: "Fibonacci", name: "Fibonacci: recuo até 38,2%–50% a favor da tendência" },
   { id: "fibc", type: "fib", n: 30, a: .382, b: .618, pat: true, grp: "Fibonacci", name: "Fibonacci + candle de reversão (confluência)" },
@@ -682,6 +688,15 @@ function firstHour(cs, win) {
   }
   return { fh: out, e21 };
 }
+// mínima/máxima do dia (até o candle anterior) e de ontem
+function dayLevels(cs) {
+  const n = cs.length, L = { dLow: [], dHigh: [], yLow: [], yHigh: [], nIn: [] }; let day = null, lo = null, hi = null, pLo = null, pHi = null, cnt = 0;
+  for (let i = 0; i < n; i++) { const c = cs[i];
+    if (c.day !== day) { if (day !== null) { pLo = lo; pHi = hi; } day = c.day; lo = hi = null; cnt = 0; }
+    L.dLow[i] = lo; L.dHigh[i] = hi; L.yLow[i] = pLo; L.yHigh[i] = pHi; L.nIn[i] = cnt;
+    lo = lo == null ? c.l : Math.min(lo, c.l); hi = hi == null ? c.h : Math.max(hi, c.h); cnt++; }
+  return L;
+}
 // ================= ESTRATÉGIAS PERSONALIZADAS =================
 const CONDS = {
   close_above_ma: { t: "Fechou ACIMA da média (cruzou para cima)", f: ["n"] },
@@ -697,6 +712,11 @@ const CONDS = {
   bull: { t: "Candle de alta (verde)", f: [] },
   bear: { t: "Candle de baixa (vermelho)", f: [] },
   pat: { t: "Padrão de candle", f: ["p"] },
+  reclaim_dlow: { t: "Perdeu a mínima do DIA e voltou acima", f: [] },
+  reclaim_ylow: { t: "Perdeu a mínima de ONTEM e voltou acima", f: [] },
+  lost_dlow: { t: "Fechou abaixo da mínima do dia", f: [] },
+  lost_ylow: { t: "Fechou abaixo da mínima de ontem", f: [] },
+  break_dhigh: { t: "Fechou acima da máxima do dia", f: [] },
 };
 const PATS = { EA: "Engolfo de alta", EB: "Engolfo de baixa", M: "Martelo", EC: "Estrela cadente", D: "Doji" };
 function condText(c) {
@@ -706,7 +726,7 @@ function condText(c) {
   if (c.k === "pat") return d.t + ": " + (PATS[c.p] || c.p);
   return d.t.replace("média", "média " + c.n);
 }
-function condArr(cs, c, E, R) {
+function condArr(cs, c, E, R, L) {
   const n = cs.length, C = cs.map(x => x.c), out = new Array(n).fill(false), e = k => E[k] || (E[k] = ema(C, k));
   for (let i = 1; i < n; i++) { const x = cs[i];
     switch (c.k) {
@@ -723,13 +743,20 @@ function condArr(cs, c, E, R) {
       case "bull": out[i] = x.c > x.o; break;
       case "bear": out[i] = x.c < x.o; break;
       case "pat": { const p = candlePattern(cs, i); out[i] = !!p && p.k === c.p; break; }
+      case "lost_dlow": out[i] = L.nIn[i] >= 2 && L.dLow[i] != null && x.c < L.dLow[i]; break;
+      case "reclaim_dlow": out[i] = L.nIn[i] >= 2 && L.dLow[i] != null && x.l < L.dLow[i] && x.c > L.dLow[i]; break;
+      case "lost_ylow": out[i] = L.yLow[i] != null && x.c < L.yLow[i]; break;
+      case "reclaim_ylow": out[i] = L.yLow[i] != null && x.l < L.yLow[i] && x.c > L.yLow[i]; break;
+      case "break_dhigh": out[i] = L.nIn[i] >= 2 && L.dHigh[i] != null && x.c > L.dHigh[i]; break;
     } }
   return out;
 }
-function ruleArr(cs, list, E, R) {
+function ruleArr(cs, list, E, R, L) {
   const n = cs.length; if (!list || !list.length) return new Array(n).fill(false);
-  const arrs = list.map(c => condArr(cs, c, E, R)); return Array.from({ length: n }, (_, i) => arrs.every(a => a[i]));
+  const arrs = list.map(c => condArr(cs, c, E, R, L)); return Array.from({ length: n }, (_, i) => arrs.every(a => a[i]));
 }
+function optStrats() { const au = cfg.optAuto !== false, ma = cfg.optManual !== false;
+  return STRATS.filter(s => s.type === "custom" ? ma && s.on !== false : au); }
 function customStrats() { return (cfg.custom || []).map(c => Object.assign({ type: "custom", grp: "🛠 Minhas" }, c)); }
 // direção do sinal em cada candle: 1 compra, -1 venda, 0 nada
 function stratDirs(cs, st) {
@@ -788,8 +815,13 @@ function stratDirs(cs, st) {
         if (c.l <= top && c.l >= bot - .1 * r && c.c > c.o && c.c > (top + bot) / 2 && (!st.pat || (p && (p.k === "EA" || p.k === "M")))) d[i] = 1; }
       else if (e21[i] < e50[i] && hi < li) { const bot = ll + st.a * r, top = ll + st.b * r;
         if (c.h >= bot && c.h <= top + .1 * r && c.c < c.o && c.c < (top + bot) / 2 && (!st.pat || (p && (p.k === "EB" || p.k === "EC")))) d[i] = -1; } }
+  } else if (st.type === "sweep") {
+    const L = dayLevels(cs), y = st.lvl === "y";
+    for (let i = 1; i < n; i++) { const x = cs[i], lo = y ? L.yLow[i] : L.dLow[i], hi = y ? L.yHigh[i] : L.dHigh[i];
+      if (!y && L.nIn[i] < 3) continue;
+      if (lo != null && x.l < lo && x.c > lo && x.c > x.o) d[i] = 1; else if (hi != null && x.h > hi && x.c < hi && x.c < x.o) d[i] = -1; }
   } else if (st.type === "custom") {
-    const E = {}, R = { r: rsiArr(C, 14) }, B = ruleArr(cs, st.buy, E, R), S = ruleArr(cs, st.sell, E, R);
+    const E = {}, R = { r: rsiArr(C, 14) }, L = dayLevels(cs), B = ruleArr(cs, st.buy, E, R, L), S = ruleArr(cs, st.sell, E, R, L);
     for (let i = 1; i < n; i++) { const b = B[i] && !B[i - 1], v = S[i] && !S[i - 1]; if (b && !v) d[i] = 1; else if (v && !b) d[i] = -1; }
   } else if (st.type === "pb21") {
     const e9 = ema(C, 9), e21 = ema(C, 21), e50 = ema(C, 50);
@@ -1441,12 +1473,23 @@ function bindHist() { document.querySelectorAll("#histPer [data-p]").forEach(b =
 document.getElementById("histHd").onclick = () => { cfg.histOpen = !cfg.histOpen; store.set("cfg", cfg); renderHist(); };
 // ================= CRIADOR DE ESTRATÉGIAS =================
 let bldDraft = null;
+["optAuto", "optManual"].forEach(id => document.getElementById(id).onchange = e => {
+  cfg[id] = e.target.checked;
+  if (cfg.optAuto === false && cfg.optManual === false) { cfg[id === "optAuto" ? "optManual" : "optAuto"] = true; toast("Pelo menos uma precisa ficar ligada."); }
+  if (id === "optManual" && e.target.checked && !(cfg.custom || []).some(c => c.on !== false)) toast("Crie uma estratégia em ＋ Criar para usar a análise manual.");
+  store.set("cfg", cfg); renderCst(); syncTurnos(); syncScan(); });
 function renderCst() {
   const box = document.getElementById("cstList"), L = cfg.custom || [];
-  document.getElementById("optN").textContent = STRATS.length;
+  const nAuto = STRATS.filter(s => s.type !== "custom").length, nMan = (cfg.custom || []).filter(c => c.on !== false).length;
+  document.getElementById("optN").textContent = optStrats().length;
+  document.getElementById("optAuto").checked = cfg.optAuto !== false; document.getElementById("optManual").checked = cfg.optManual !== false;
+  document.getElementById("optAutoTxt").textContent = nAuto + " estratégias do app";
+  document.getElementById("optManTxt").textContent = nMan ? nMan + " estratégia" + (nMan > 1 ? "s" : "") + " sua" + (nMan > 1 ? "s" : "") + " ligada" + (nMan > 1 ? "s" : "") : "nenhuma criada/ligada ainda";
   box.innerHTML = L.length ? L.map(c => '<div class="cst"><div class="tx"><b>' + c.name + '</b><small>🟢 ' + (c.buy.map(condText).join(" + ") || "—") + '</small><small>🔴 ' + (c.sell.map(condText).join(" + ") || "só alvo/stop") + '</small></div>' +
+    '<label class="sw" style="margin:0"><input type="checkbox" data-on="' + c.id + '"' + (c.on !== false ? " checked" : "") + '></label>' +
     '<button class="chip" data-ed="' + c.id + '" style="height:30px;padding:0 10px">✏️</button><button class="chip" data-del="' + c.id + '" style="height:30px;padding:0 10px">🗑</button></div>').join("")
     : '<p class="mut" style="font-size:12px;margin:6px 0 0">Monte as suas regras (ex.: fechou acima da média 9 → compra). Elas entram na análise junto com as outras e podem ser usadas pelo robô.</p>';
+  box.querySelectorAll("[data-on]").forEach(b => b.onchange = () => { const c = (cfg.custom || []).find(x => x.id === b.dataset.on); if (c) { c.on = b.checked; store.set("cfg", cfg); loadCustom(); renderCst(); syncTurnos(); syncScan(); } });
   box.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => openBld((cfg.custom || []).find(c => c.id === b.dataset.ed)));
   box.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { if (b.dataset.sure) { cfg.custom = (cfg.custom || []).filter(c => c.id !== b.dataset.del); store.set("cfg", cfg); loadCustom(); renderCst(); syncTurnos(); } else { b.dataset.sure = 1; b.textContent = "Apagar?"; b.style.color = "#ff8a95"; } });
 }
@@ -1498,7 +1541,7 @@ function syncTurnos() {
   const tpl = mapW({ id: "BTCUSDT", tf: "15m", src: "binance", robot: true }); ["id", "tf", "name", "strat", "stratName", "exit"].forEach(k => delete tpl[k]);
   Android.setTurnos(JSON.stringify({ on: !!cfg.turnos, days: cfg.turnoDays || 15, minHit: 75, minFreq: cfg.minFreq != null ? cfg.minFreq : 1, topN: Math.min(10, cfg.robotTopN || 10),
     quote: cfg.repQuote || "USDT", coins: assets().filter(a => a.crypto && a.id.endsWith(cfg.repQuote || "USDT")).map(a => ({ id: a.id, name: parts(a).t })),
-    tfs: ["5m", "15m", "30m", "60m"], strats: STRATS.filter(s => !s.intradayOnly), tpl }));
+    tfs: ["5m", "15m", "30m", "60m"], strats: optStrats().filter(s => !s.intradayOnly), tpl }));
 }
 function turnosState() { try { return JSON.parse(Android.turnosStatus()); } catch (e) { return { on: false }; } }
 // a análise do turno pode ter trocado os robôs: traz a lista da vigia para o app
@@ -1575,6 +1618,7 @@ document.getElementById("optRun").onclick = async () => {
   const list = all ? optCoins() : [assets().find(x => x.id === sel)];
   const tfs = TFS.filter(t => optTfSel.includes(t.id));
   if (!tfs.length) { optOut.innerHTML = '<p class="down">Marque pelo menos um tempo gráfico.</p>'; return; }
+  if (!optStrats().length) { optOut.innerHTML = '<p class="down">Nenhuma estratégia ligada. Ligue a análise automática ou crie/ligue uma estratégia sua.</p>'; return; }
   optResults = []; optAsset = all ? null : list[0]; optAll = all; const btn = document.getElementById("optRun"); btn.disabled = true;
   const cache = {}, maxD = Math.max(...PERIODS);
   const getRaw = (a, tf, hist) => { const k = a.id + "|" + (a.crypto ? tf.b : tf.y) + "|" + hist; return cache[k] || (cache[k] = loadRaw(a, tf, hist)); };
@@ -1595,7 +1639,7 @@ document.getElementById("optRun").onclick = async () => {
         const o = btOpts(a, tf), lastT = cs[cs.length - 1].t, warm = 200; o.P = exitPrep(cs);
         const starts = {}, days = {};
         for (const d of PERIODS) { const t0 = lastT - d * 86400; let i = cs.findIndex(c => c.t >= t0); if (i < 0) i = cs.length - 1; starts[d] = Math.max(warm, i); days[d] = Math.round((lastT - cs[starts[d]].t) / 86400); }
-        for (const st of STRATS) {
+        for (const st of optStrats()) {
           if (st.intradayOnly && (!tf.intraday || a.crypto)) continue;
           const dd = stratDirs(cs, st);
           for (const ex of [...new Set([o.exit, "atr", "atr2"])]) { const oo = Object.assign({}, o, { exit: ex }), per = {};
@@ -1655,13 +1699,18 @@ function showOpt() {
   let rows = valid.filter(r => r.per[D].sum > 0).sort(cmp);
   if (optAll) { const seen = new Set(); rows = rows.filter(r => !seen.has(r.a.id) && seen.add(r.a.id)); } else rows = rows.slice(0, 20);
   const n70 = valid.filter(r => hit(r) >= 70 && r.per[D].sum > 0).length;
-  let h = '<div class="tf" style="padding:0 0 6px"><button class="chip' + (byHit ? "" : " on") + '" data-sort="sum">💰 Mais lucro</button><button class="chip' + (byHit ? " on" : "") + '" data-sort="hit">🎯 Mais acerto</button></div>' +
+  let cmpH = "";
+  { const bA = valid.filter(r => r.st.type !== "custom" && r.per[D].sum > 0).sort(cmp)[0], bM = valid.filter(r => r.st.type === "custom" && r.per[D].sum > 0).sort(cmp)[0], hasM = optResults.some(r => r.st.type === "custom"), hasA = optResults.some(r => r.st.type !== "custom");
+    const cell = (t, r, has) => '<div style="flex:1;background:#0f141d;border-radius:10px;padding:8px"><small class="mut">' + t + '</small><br>' + (!has ? '<span class="mut" style="font-size:12px">desligada</span>' : !r ? '<span class="down" style="font-size:12px">nenhuma deu lucro</span>' :
+      '<b class="up">+' + r.per[D].sum.toFixed(1) + '%</b> <span style="font-size:12px">· 🎯 ' + hit(r) + '%</span><br><small style="font-size:11px">' + parts(r.a).t + ' · ' + r.tf.label + '</small><br><small class="mut" style="font-size:11px">' + r.st.name + '</small>') + '</div>';
+    if (hasM && hasA) cmpH = '<div style="display:flex;gap:6px;margin:0 0 8px">' + cell("🤖 Melhor automática", bA, hasA) + cell("🛠 Melhor sua", bM, hasM) + '</div>'; }
+  let h = cmpH + '<div class="tf" style="padding:0 0 6px"><button class="chip' + (byHit ? "" : " on") + '" data-sort="sum">💰 Mais lucro</button><button class="chip' + (byHit ? " on" : "") + '" data-sort="hit">🎯 Mais acerto</button></div>' +
     '<p class="mut" style="font-size:12px;margin:0 0 8px">' + (optAll ? 'Melhor combinação de cada cripto' : 'Melhores combinações em ' + parts(optAsset).t) + ' · últimos ' + D + ' dias · <b class="up">' + n70 + '</b> com 🎯 70%+ e lucro. Toque numa linha para usar.</p>';
   if (!rows.length) h += '<p class="down">Nenhuma combinação deu lucro nos últimos ' + D + ' dias' + (optAll ? '' : ' neste ativo') + '. O mais seguro é não operar.</p>';
   rows.forEach((r, i) => {
     const p = r.per[D], hp = hit(r), part = r.days[D] < D - 1;
     h += '<div class="orow" data-k="' + optResults.indexOf(r) + '">' + logo(r.a) +
-      '<div class="tx"><div><b>' + parts(r.a).t + '</b> <span class="tag"' + (hp >= 70 ? ' style="background:#1f5a3f;color:#9ff0c8"' : '') + '>' + (hp >= 70 ? '🎯 ' : '') + hp + '%</span>' + (consist(r) ? ' <span class="up" style="font-size:12px">✔</span>' : '') + '</div>' +
+      '<div class="tx"><div><b>' + parts(r.a).t + '</b>' + (r.st.type === "custom" ? ' <span class="tag" style="background:#3b2a5c;color:#d9c7ff">🛠 sua</span>' : '') + ' <span class="tag"' + (hp >= 70 ? ' style="background:#1f5a3f;color:#9ff0c8"' : '') + '>' + (hp >= 70 ? '🎯 ' : '') + hp + '%</span>' + (consist(r) ? ' <span class="up" style="font-size:12px">✔</span>' : '') + '</div>' +
       '<small>' + r.st.name + '</small><small>' + r.tf.label + ' · ' + EXIT_SHORT[r.ex] + ' · <b style="color:#c9d1dd">' + fpd(r) + ' op/dia</b>' + (part ? ' · ' + r.days[D] + 'd' : '') + '</small></div>' +
       '<div class="rt"><b class="up">+' + (r.a.futures ? Math.round(p.sum) + ' pts' : p.sum.toFixed(1) + '%') + '</b><small>' + p.wins + '✓ ' + (p.n - p.wins) + '✗</small></div></div>';
   });
@@ -1765,7 +1814,7 @@ function repCoins() { const q = cfg.repQuote || "USDT"; return assets().filter(a
 function syncScan() {
   if (!(window.Android && Android.setScan)) return;
   Android.setScan(JSON.stringify({ on: !!cfg.repOn, hour: cfg.repHour != null ? cfg.repHour : 8, coins: repCoins(), tfs: ["5m", "15m", "30m", "60m"],
-    strats: STRATS.filter(s => !s.intradayOnly), exits: ["auto", "atr", "atr2"], fee: .001, minOps: 6, minHit: 70 }));
+    strats: optStrats().filter(s => !s.intradayOnly), exits: ["auto", "atr", "atr2"], fee: .001, minOps: 6, minHit: 70 }));
 }
 function renderRep(rep) {
   const out = document.getElementById("repOut"), bank = cfg.repBank || 100, goal = cfg.repGoal || 30, cur = (cfg.repQuote || "USDT") === "BRL" ? "R$ " : "", suf = cur ? "" : " USDT";
