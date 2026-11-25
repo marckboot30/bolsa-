@@ -161,6 +161,7 @@
   .rbPanic { width: 100%; height: 38px; margin-top: 8px; border-radius: 10px; border: 1px solid #d9414f; background: rgba(217,65,79,.08); color: #ff8a95; font-size: 13px; font-weight: 800; }
   .sw input { width: 22px; height: 22px; }
   .primary { width: 100%; height: 48px; margin-top: 18px; border-radius: 12px; border: none; background: #2b6cff; color: #fff; font-weight: 800; font-size: 16px; }
+.tbar{height:6px;background:#1c2433;border-radius:4px;margin-top:8px;overflow:hidden}.tbar div{height:100%;background:#c084fc}
 </style>
 </head>
 <body>
@@ -210,6 +211,15 @@
       <div class="rbRow"><label for="brkTpM">Alvo por operação</label><input type="number" id="brkTpM" min="0" step="0.5" class="sm"></div>
       <div class="rbRow"><label for="brkSlM">Stop por operação</label><input type="number" id="brkSlM" min="0" step="0.5" class="sm"></div>
       <p class="mut" style="font-size:11px;margin:0 0 4px">Em dinheiro, já descontando as taxas. Ex.: alvo 1 = fecha quando ganhar $1 líquido. 0 = usar o alvo/stop da estratégia (ATR).</p>
+      <div class="sw" style="margin-top:6px;font-size:13px"><span>🔒 Travar lucro</span><input type="checkbox" id="prLockOn"></div>
+      <div class="rbRow"><label for="prLockAt">Quando o lucro chegar em</label><input type="number" id="prLockAt" min="0.1" step="0.1" class="sm"></div>
+      <div class="rbRow"><label for="prLockKeep">Subir o stop para garantir</label><input type="number" id="prLockKeep" min="0" step="0.1" class="sm"></div>
+      <div class="sw" style="margin-top:6px;font-size:13px"><span>🚀 Deixar correr com volume forte</span><input type="checkbox" id="prRunOn"></div>
+      <div class="rbRow"><label for="prRunVol">Volume forte = vezes a média de 20</label><input type="number" id="prRunVol" min="1" step="0.1" class="sm"></div>
+      <div class="rbRow"><label for="prRunAdd">Subir o alvo em</label><input type="number" id="prRunAdd" min="0.1" step="0.5" class="sm"></div>
+      <div class="rbRow"><label for="prRunSl">Passou do alvo: stop garante</label><input type="number" id="prRunSl" min="0" step="0.1" class="sm"></div>
+      <div class="rbRow"><label for="prTrail">Depois, guardar % do maior lucro</label><input type="number" id="prTrail" min="30" max="95" step="5" class="sm"></div>
+      <p class="mut" style="font-size:11px;margin:0 0 4px">A vigia confere a cada 30 s e move o alvo/stop na Binance. Tudo aparece no gráfico: 🎯 gain, 🛑 stop (fica 🔒 amarelo quando já garante lucro) e os degraus de cada movimento.</p>
       <div class="rbRow"><label for="brkMaxLoss">Perda máxima por dia</label><input type="number" id="brkMaxLoss" min="0" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxLosses">Parar após perdas seguidas</label><input type="number" id="brkMaxLosses" min="0" max="20" step="1" class="sm"></div>
       <div class="rbRow"><label for="brkMaxLossAll">Perda máxima do dia (todos os robôs)</label><input type="number" id="brkMaxLossAll" min="0" step="1" class="sm"></div>
@@ -1049,9 +1059,24 @@ function draw() {
   if (tf.intraday && an.st.type === "h1" && V.fh) { const r = firstHour(cs.slice(0, end), an.st.win || 60).fh[end - 1];
     if (r && cs[r.end].day === lastDay) { hline(r.hi, "#4da3ff", "MÁX 1ª HORA" + (r.trend === 1 ? " ↑" : "")); hline(r.lo, "#ff9f43", "MÍN 1ª HORA" + (r.trend === -1 ? " ↓" : "")); } }
   { const op = an.sim.open, tg = goalPts(curAsset()); if (op && tg) hline(op.entry + op.dir * tg, "#ffd166", "🎯 META"); }
-  if (asset.crypto && window.Android && Android.robotStatus && V.robo) { const R = robotState(asset); if (R.open) { hline(R.open.price, "#c084fc", "🤖 ENTRADA DO ROBÔ " + fmt(R.open.price, asset), [6, 3]);
-      if (R.open.tp) hline(R.open.tp, "#26c281", "🤖 ALVO " + fmt(R.open.tp, asset), [2, 2]); if (R.open.sl) hline(R.open.sl, "#ff5468", "🤖 STOP " + fmt(R.open.sl, asset), [2, 2]); }
-    const span = tf.min * 60000;
+  if (asset.crypto && window.Android && Android.robotStatus && V.robo) { const R = robotState(asset), span = tf.min * 60000; if (R.open) { const o = R.open, q = o.quote || 0, fees = q * .002;
+      const m = p => q ? (p / o.price - 1) * q - fees : 0, ms = v => (v >= 0 ? "+" : "−") + "$" + Math.abs(v).toFixed(2).replace(".", ",");
+      // linha do robô: se estiver fora da tela, fica presa na borda com uma seta
+      const rl = (v, col, label, dash, w) => { const out = v > hi ? "↑ " : v < lo ? "↓ " : "", y = Math.max(padT + 12, Math.min(H - padB - 2, Y(v)));
+        g.strokeStyle = col; g.lineWidth = w || 1.6; g.setLineDash(out ? [1, 4] : dash); g.beginPath(); g.moveTo(0, y); g.lineTo(W - padR, y); g.stroke(); g.setLineDash([]);
+        g.font = "bold 10px system-ui"; g.textAlign = "left"; g.textBaseline = "bottom"; const t = out + label; g.fillStyle = "rgba(11,15,22,.75)"; g.fillRect(2, y - 13, g.measureText(t).width + 6, 12); g.fillStyle = col; g.fillText(t, 5, y - 2); return y; };
+      const iE = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span), xE = iE >= start ? X(iE) : 0;
+      // faixa de lucro garantido (stop acima da entrada)
+      if (o.sl && o.sl > o.price) { const y1 = Math.max(padT, Math.min(H - padB, Y(o.sl))), y0 = Math.max(padT, Math.min(H - padB, Y(o.price))); g.fillStyle = "rgba(38,194,129,.10)"; g.fillRect(xE, y1, W - padR - xE, y0 - y1); }
+      // caminho do stop e do alvo: degraus a cada vez que o robô moveu
+      if (o.mv && o.mv.length > 1) for (const [key, col] of [["sl", "rgba(255,84,104,.55)"], ["tp", "rgba(38,194,129,.55)"]]) { g.strokeStyle = col; g.lineWidth = 1.2; g.beginPath(); let first = true, py = 0;
+        for (let j = 0; j < o.mv.length; j++) { const mv = o.mv[j], i = cs.findIndex(c => mv.t >= c.t * 1000 && mv.t < c.t * 1000 + span), x = i < 0 ? X(end - 1) : Math.max(xE, X(Math.max(i, start))), y = Math.max(padT, Math.min(H - padB, Y(mv[key])));
+          if (first) { g.moveTo(x, y); first = false; } else { g.lineTo(x, py); g.lineTo(x, y); } py = y; }
+        g.lineTo(W - padR, py); g.stroke(); }
+      const tag = o.ph >= 2 ? " 🚀" : o.ph === 1 ? " 🔒" : "";
+      rl(o.price, "#c084fc", "🤖 ENTRADA " + fmt(o.price, asset), [6, 3]);
+      if (o.tp) rl(o.tp, "#26c281", "🎯 GAIN " + fmt(o.tp, asset) + " (" + ms(m(o.tp)) + ")" + tag, [5, 3], 2);
+      if (o.sl) rl(o.sl, o.sl > o.price ? "#ffd166" : "#ff5468", (o.sl > o.price ? "🔒 STOP NO LUCRO " : "🛑 STOP ") + fmt(o.sl, asset) + " (" + ms(m(o.sl)) + ")", [5, 3], 2); }
     for (const o of R.mine) { const i = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span); if (i < start || i >= end || o.price > hi || o.price < lo) continue;
       const x = X(i), y = Y(o.price); g.beginPath(); g.arc(x, y, 6, 0, 7); g.fillStyle = o.side === "BUY" ? "#1f9e6a" : "#d9414f"; g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.stroke();
       g.font = "bold 10px system-ui"; g.textAlign = "center"; g.textBaseline = o.side === "BUY" ? "top" : "bottom"; g.fillStyle = "#e9d5ff"; g.fillText(o.side === "BUY" ? "🤖 C" : "🤖 V", x, o.side === "BUY" ? y + 9 : y - 9); } }
@@ -1119,9 +1144,10 @@ function robotState(a, tf) {
   let st = { mode: "demo", inPos: false, beat: 0, now: Date.now() }; try { st = JSON.parse(Android.robotStatus(a.id, tf)); } catch (e) {}
   // ordens deste robô (mesma cripto e mesmo tempo); ordens antigas sem tempo valem para todos
   const mine = robotLog().filter(o => o.symbol === a.id && (o.mode || "demo") === st.mode && o.side !== "ERRO" && (!o.tf || o.tf === tf));
-  const open = mine[0] && mine[0].side === "BUY" ? mine[0] : null, lastBuy = mine.find(o => o.side === "BUY");
+  let open = mine[0] && mine[0].side === "BUY" ? mine[0] : null; const lastBuy = mine.find(o => o.side === "BUY");
   const trips = []; for (let i = 0; i < mine.length; i++) if (mine[i].side === "SELL") { const b = mine.slice(i + 1).find(o => o.side === "BUY"); if (b) trips.push({ buy: b, sell: mine[i], r: mine[i].quote - b.quote, pct: (mine[i].price / b.price - 1) * 100 }); }
   const err = robotLog().find(o => o.symbol === a.id && o.side === "ERRO");
+  if (open && st.slot && st.slot.tp) open = Object.assign({}, open, { tp: st.slot.tp, sl: st.slot.sl, mv: st.slot.mv || [], ph: st.slot.ph || 0, peak: st.slot.peak || 0 });
   return { st, mine, open, lastBuy, trips, err };
 }
 const livePx = {}; let liveAdj = null;
@@ -1161,7 +1187,7 @@ function renderLive() {
     } else pill = '<span class="pill">' + (w.off ? "DESLIGADO" : paused ? "⏸ PAUSADO" : "FORA") + '</span>';
     const tfl = (TFS.find(x => x.id === w.tf) || {}).label || w.tf;
     let sub2 = curStrat(w.id, w.tf).name + (w.hit ? ' · 🎯' + w.hit + '%' : '');
-    if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · 🛑 ' + fmt(R.open.sl, a) : '');
+    if (cur && R.open) sub2 = 'entrou ' + fmt(R.open.price, a) + (R.open.tp ? ' · 🎯 ' + fmt(R.open.tp, a) + ' · ' + (R.open.sl > R.open.price ? '🔒 ' : '🛑 ') + fmt(R.open.sl, a) + (R.open.ph >= 2 ? ' 🚀' : '') : '');
     const row = '<div class="lrow' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '">' + logo(a) + '<div class="tx"><b>' + parts(a).t + '</b> <span class="tag">' + tfl + '</span><small>' + sub2 + '</small></div>' +
       '<div class="rt">' + pill + nowMoney + '<small class="' + (pnl > 0 ? "up" : pnl < 0 ? "down" : "") + '">hoje ' + money(pnl, a) + '</small>' +
       (R.open ? '<div class="lbtns">' + (R.open.tf ? '<button class="lclose" data-adj="' + w.id + '|' + R.open.tf + '">⚙ Ajustar</button>' : '') + '<button class="lclose" data-close="' + w.id + '|' + (R.open.tf || "") + '">✕ Encerrar</button></div>' : '') + '</div></div>' +
@@ -1353,7 +1379,7 @@ function renderRobot() {
   document.getElementById("brkMaxLossAll").value = cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30; document.getElementById("brkMaxOpen").value = cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10;
   document.querySelector('label[for="brkMaxLossAll"]').textContent = "Perda máxima do dia (todos)" + (cur ? " (" + cur + ")" : "");
   document.getElementById("brkOco").checked = cfg.robotOco !== false;
-  document.getElementById("brkTpM").value = cfg.robotTpM != null ? cfg.robotTpM : 1; document.getElementById("brkSlM").value = cfg.robotSlM != null ? cfg.robotSlM : 1;
+  fillProt(); document.getElementById("brkTpM").value = cfg.robotTpM != null ? cfg.robotTpM : 1; document.getElementById("brkSlM").value = cfg.robotSlM != null ? cfg.robotSlM : 1;
   document.querySelector('label[for="brkTpM"]').textContent = "Alvo por operação" + (cur ? " (" + cur + ")" : "");
   document.querySelector('label[for="brkSlM"]').textContent = "Stop por operação" + (cur ? " (" + cur + ")" : "");
   document.getElementById("trnOn").checked = !!cfg.turnos; document.getElementById("vigiaTop").checked = cfg.vigiaTop !== false;
@@ -1406,6 +1432,11 @@ document.getElementById("trnOn").onchange = e => { cfg.turnos = e.target.checked
   toast(cfg.turnos ? "⏰ Turnos ligados: análise às 11h e às 23h" : "Turnos desligados"); };
 document.getElementById("brkTpM").onchange = e => { cfg.robotTpM = Math.max(0, +e.target.value || 0); syncWatch(); toast(cfg.robotTpM ? "🎯 Alvo: fecha ao ganhar " + cfg.robotTpM + " líquido" : "Alvo pelo ATR da estratégia"); };
 document.getElementById("brkSlM").onchange = e => { cfg.robotSlM = Math.max(0, +e.target.value || 0); syncWatch(); };
+[["prLockOn", "lockOn"], ["prRunOn", "runOn"]].forEach(([id, k]) => document.getElementById(id).onchange = e => { cfg.prot = Object.assign(protCfg(), { [k]: e.target.checked }); syncWatch(); });
+[["prLockAt", "lockAt"], ["prLockKeep", "lockKeep"], ["prRunVol", "runVol"], ["prRunAdd", "runAdd"], ["prRunSl", "runSl"], ["prTrail", "trailKeep", 100]].forEach(([id, k, d]) =>
+  document.getElementById(id).onchange = e => { const v = Math.max(0, +e.target.value || 0) / (d || 1); cfg.prot = Object.assign(protCfg(), { [k]: v }); syncWatch(); });
+function fillProt() { const p = protCfg(); document.getElementById("prLockOn").checked = p.lockOn; document.getElementById("prRunOn").checked = p.runOn;
+  [["prLockAt", "lockAt"], ["prLockKeep", "lockKeep"], ["prRunVol", "runVol"], ["prRunAdd", "runAdd"], ["prRunSl", "runSl"], ["prTrail", "trailKeep", 100]].forEach(([id, k, d]) => document.getElementById(id).value = +(p[k] * (d || 1)).toFixed(2)); }
 document.getElementById("brkOco").onchange = e => { cfg.robotOco = e.target.checked; syncWatch(); };
 document.getElementById("brkMaxLoss").onchange = e => { cfg.robotMaxLoss = Math.max(0, +e.target.value || 0); syncWatch(); };
 document.getElementById("brkMaxLossAll").onchange = e => { cfg.robotMaxLossAll = Math.max(0, +e.target.value || 0); syncWatch(); };
@@ -1430,7 +1461,10 @@ document.getElementById("brkRobot").onclick = () => {
 
 function mapW(w) { const st = curStrat(w.id, w.tf); return Object.assign({}, w, { fast: cfg.fast, slow: cfg.slow, cross: cfg.alert, brk: cfg.brk, strat: st, stratName: st.name, exit: curExit(w.id, w.tf), short: !!cfg.short || w.id === "^BVSP", target: goalPts(assets().find(a => a.id === w.id)), robot: !!w.robot, robotQuote: cfg.robotQuote || 50, oco: cfg.robotOco !== false, maxLoss: cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, maxLosses: cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3,
     tpMoney: cfg.robotTpM != null ? cfg.robotTpM : 1, slMoney: cfg.robotSlM != null ? cfg.robotSlM : 1,
-    maxLossAll: cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30, maxOpen: cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10 }); }
+    maxLossAll: cfg.robotMaxLossAll != null ? cfg.robotMaxLossAll : 30, maxOpen: cfg.robotMaxOpen != null ? cfg.robotMaxOpen : 10, prot: protCfg() }); }
+const PROT0 = { lockOn: true, lockAt: .6, lockKeep: .3, runOn: true, runVol: 1.5, runAdd: 1, runSl: .7, trailKeep: .7 };
+if (!cfg.testFrom) { cfg.testFrom = Date.now(); store.set("cfg", cfg); }
+function protCfg() { return Object.assign({}, PROT0, cfg.prot || {}); }
 function syncWatch() {
   store.set("cfg", cfg);
   const list = cfg.watch.filter(w => !binanceOnly() || w.src === "binance").map(mapW);
@@ -1473,7 +1507,7 @@ document.getElementById("updCheck").onclick = () => { document.getElementById("m
 setTimeout(() => checkUpd(false), 4000);
 setInterval(() => { if (!document.hidden) checkUpd(false); }, 6 * 3600000);
 // ================= HISTÓRICO =================
-let histPeriod = "7";
+let histPeriod = "teste";
 function histTrips(mode) {
   let log = []; try { log = JSON.parse(Android.brokerLog()); } catch (e) {}
   const open = {}, trips = [];
@@ -1490,15 +1524,18 @@ function renderHist() {
   if (!opened) { body.innerHTML = ""; return; }
   if (!(window.Android && Android.brokerLog)) { body.innerHTML = '<p class="mut">O histórico aparece quando o robô começar a operar.</p>'; return; }
   const mode = brkInfo().mode, H = histTrips(mode), now = Date.now(), t0 = new Date(); t0.setHours(0, 0, 0, 0);
-  const since = histPeriod === "1" ? t0.getTime() : histPeriod === "all" ? 0 : now - (+histPeriod) * 86400000;
+  if (!cfg.testFrom) { cfg.testFrom = now; store.set("cfg", cfg); }
+  const since = histPeriod === "1" ? t0.getTime() : histPeriod === "all" ? 0 : histPeriod === "teste" ? cfg.testFrom : now - (+histPeriod) * 86400000;
   const tr = H.trips.filter(t => t.sell.t >= since);
   const q = s => /BRL$/.test(s) ? "R$ " : "", qs = s => /USDT$/.test(s) ? " USDT" : "";
   const money = (v, s) => (v >= 0 ? "+" : "−") + q(s || "USDT") + Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const tot = tr.reduce((a, t) => a + t.r, 0), wins = tr.filter(t => t.r > 0).length, inv = tr.reduce((a, t) => a + t.buy.quote, 0);
   const name = s => { const a = assets().find(x => x.id === s); return a ? parts(a).t : s; };
   const tm = t => new Date(t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  let h = '<div class="seg" id="histPer" style="margin-top:8px;width:max-content">' + [["1", "Hoje"], ["7", "7 dias"], ["30", "30 dias"], ["all", "Tudo"]].map(([k, l]) => '<button data-p="' + k + '" class="' + (k === histPeriod ? "on" : "") + '">' + l + '</button>').join("") + '</div>' +
-    '<p class="mut" style="font-size:11px;margin:4px 0 0">' + (mode === "real" ? '<b class="down">CONTA REAL</b>' : "Conta de teste") + (H.open.length ? ' · ' + H.open.length + ' operação(ões) aberta(s) agora' : '') + '</p>';
+  let h = '<div class="seg" id="histPer" style="margin-top:8px;width:max-content">' + [["teste", "Teste"], ["1", "Hoje"], ["7", "7 dias"], ["30", "30 dias"], ["all", "Tudo"]].map(([k, l]) => '<button data-p="' + k + '" class="' + (k === histPeriod ? "on" : "") + '">' + l + '</button>').join("") + '</div>' +
+    '<p class="mut" style="font-size:11px;margin:4px 0 0">' + (mode === "real" ? '<b class="down">CONTA REAL</b>' : "Conta de teste") + (H.open.length ? ' · ' + H.open.length + ' operação(ões) aberta(s) agora' : '') + '</p>' +
+    (histPeriod === "teste" ? (() => { const n = H.trips.filter(t => t.sell.t >= cfg.testFrom).length; return '<div class="tbar"><div style="width:' + Math.min(100, n) + '%"></div></div><p style="font-size:12px;margin:2px 0 0">🧪 Teste da versão final: <b>' + Math.min(n, 100) + ' de 100</b> operações desde ' +
+      new Date(cfg.testFrom).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + (n >= 100 ? ' · ✅ pronto para avaliar' : '') + ' <button class="chip" id="testReset" style="padding:2px 8px;font-size:11px">recomeçar</button></p>'; })() : '');
   if (!tr.length) { body.innerHTML = h + '<p class="mut" style="font-size:13px;margin-top:10px">Nenhuma operação fechada neste período.</p>'; bindHist(); return; }
   h += '<div class="hsum"><div><b class="' + (tot >= 0 ? "up" : "down") + '">' + money(tot).replace(" USDT", "") + '</b><span>Resultado</span></div><div><b>' + tr.length + '</b><span>Operações</span></div>' +
     '<div><b>' + Math.round(wins / tr.length * 100) + '%</b><span>Acerto</span></div><div><b class="' + (tot >= 0 ? "up" : "down") + '">' + (inv ? (tot / inv * 100 * (tr.length / Math.max(1, tr.length))).toFixed(1) : "0") + '%</b><span>Sobre o investido</span></div></div>' +
@@ -1509,12 +1546,12 @@ function renderHist() {
   h += '<div class="hsec">Por dia</div>' + Object.entries(days).map(([k, g]) => '<div class="hrow"><span><b>' + k + '</b><small>' + g.n + ' op. · ' + Math.round(g.w / g.n * 100) + '% · ☀️ ' + money(g.am) + ' · 🌙 ' + money(g.pm) + '</small></span><b class="' + (g.r >= 0 ? "up" : "down") + '">' + money(g.r) + '</b></div>').join("");
   // por cripto (toque para ver as operações dela)
   const cr = {}; for (const t of tr) { const g = cr[t.sym] || (cr[t.sym] = { r: 0, n: 0, w: 0, list: [] }); g.r += t.r; g.n++; if (t.r > 0) g.w++; g.list.push(t); }
-  const why = w => /alvo/.test(w || "") ? "🎯" : /stop/.test(w || "") ? "🛑" : /manual|pânico/.test(w || "") ? "✋" : /turno/.test(w || "") ? "🔒" : "📉";
+  const why = w => /deixou correr/.test(w || "") ? "🚀" : /lucro travado/.test(w || "") ? "🔐" : /alvo/.test(w || "") ? "🎯" : /stop/.test(w || "") ? "🛑" : /manual|pânico/.test(w || "") ? "✋" : /turno/.test(w || "") ? "🔒" : "📉";
   h += '<div class="hsec">Por cripto · toque para ver as operações</div>' + Object.entries(cr).sort((a, b) => b[1].r - a[1].r).map(([k, g]) => { const a = assets().find(x => x.id === k), op = histSym.has(k);
     return '<div class="hrow hc" data-sym="' + k + '"><span style="display:flex;align-items:center;gap:8px">' + (a ? '<span class="hlogo">' + logo(a) + '</span>' : "") + '<span><b>' + name(k) + '</b><small>' + g.n + ' op. · acerto ' + Math.round(g.w / g.n * 100) + '% ' + (op ? "▴" : "▾") + '</small></span></span><b class="' + (g.r >= 0 ? "up" : "down") + '">' + money(g.r, k) + '</b></div>' +
       (op ? '<div class="hops">' + g.list.map(t => '<div class="hop"><span>' + (t.tf ? '<b>' + ((TFS.find(x => x.id === t.tf) || {}).label || t.tf) + '</b> · ' : '') + new Date(t.sell.t).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + ' ' + tm(t.buy.t) + '→' + tm(t.sell.t) + ' ' + why(t.sell.why) + '</span>' +
         '<span class="' + (t.r >= 0 ? "up" : "down") + '"><b>' + money(t.r, t.sym) + '</b> <small>' + (t.pct >= 0 ? "+" : "") + t.pct.toFixed(2).replace(".", ",") + '%</small></span></div>').join("") + '</div>' : ''); }).join("") +
-    '<p class="mut" style="font-size:10px;margin:6px 0 0">🎯 alvo · 🛑 stop · 📉 sinal de saída · ✋ manual · 🔒 fim do turno</p>';
+    '<p class="mut" style="font-size:10px;margin:6px 0 0">🎯 alvo · 🛑 stop · 🔐 stop no lucro · 🚀 deixou correr · 📉 sinal de saída · ✋ manual · 🔒 fim do turno</p>';
   body.innerHTML = h; bindHist();
   // curva do resultado acumulado
   const cv = document.getElementById("histCv"), W = cv.clientWidth, Ht = 110, dpr = window.devicePixelRatio || 1; cv.width = W * dpr; cv.height = Ht * dpr;
@@ -1525,7 +1562,8 @@ function renderHist() {
   g.lineTo(X(pts.length - 1), Y(0)); g.lineTo(X(0), Y(0)); g.closePath(); g.fillStyle = up ? "rgba(38,194,129,.12)" : "rgba(255,84,104,.12)"; g.fill();
 }
 const histSym = new Set();
-function bindHist() { document.querySelectorAll("#histBody .hc").forEach(r => r.onclick = () => { const k = r.dataset.sym; histSym.has(k) ? histSym.delete(k) : histSym.add(k); renderHist(); }); document.querySelectorAll("#histPer [data-p]").forEach(b => b.onclick = () => { histPeriod = b.dataset.p; renderHist(); }); }
+function bindHist() { document.querySelectorAll("#histBody .hc").forEach(r => r.onclick = () => { const k = r.dataset.sym; histSym.has(k) ? histSym.delete(k) : histSym.add(k); renderHist(); }); document.querySelectorAll("#histPer [data-p]").forEach(b => b.onclick = () => { histPeriod = b.dataset.p; renderHist(); });
+  const tr = document.getElementById("testReset"); if (tr) tr.onclick = () => { cfg.testFrom = Date.now(); store.set("cfg", cfg); renderHist(); toast("🧪 Contagem recomeçou do zero"); }; }
 document.getElementById("histHd").onclick = () => { cfg.histOpen = !cfg.histOpen; store.set("cfg", cfg); renderHist(); };
 // ================= CRIADOR DE ESTRATÉGIAS =================
 let bldDraft = null;

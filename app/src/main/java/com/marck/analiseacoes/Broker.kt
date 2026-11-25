@@ -257,6 +257,29 @@ object Broker {
         return JSONObject().put("tp", tp).put("sl", sl)
     }
 
+    /** Move o alvo e o stop desta operação (lucro travado / deixar correr). Se a Binance recusar, volta ao que era ou fecha no mercado. */
+    fun robotMove(ctx: Context, symbol: String, tf: String, tp: Double, sl: Double, extra: JSONObject): Boolean {
+        val key = "$symbol|$tf"; val sl0 = slot(ctx, key) ?: return false; if (!sl0.has("oco")) return false
+        val oldTp = sl0.optDouble("tp"); val oldSl = sl0.optDouble("sl")
+        // já executou? então não mexe (a vigia registra a venda)
+        val l = JSONObject(signed(ctx, "GET", "/api/v3/orderList", mapOf("orderListId" to sl0.getLong("oco").toString())))
+        if (l.optString("listOrderStatus") == "ALL_DONE") return false
+        cancelOco(ctx, symbol, sl0.getLong("oco")); sl0.remove("oco"); setSlot(ctx, key, sl0)
+        try { robotProtect(ctx, symbol, tf, tp, sl) } catch (e: Exception) {
+            try { robotProtect(ctx, symbol, tf, oldTp, oldSl); return false } catch (_: Exception) { robotClose(ctx, symbol, tf, "stop móvel: fechou no mercado"); return false }
+        }
+        val n = slot(ctx, key) ?: return true
+        val mv = n.optJSONArray("mv") ?: JSONArray()
+        if (mv.length() == 0) mv.put(JSONObject().put("t", n.optLong("t")).put("tp", oldTp).put("sl", oldSl))
+        mv.put(JSONObject().put("t", System.currentTimeMillis()).put("tp", tp).put("sl", sl))
+        val k = extra.keys(); while (k.hasNext()) { val x = k.next(); n.put(x, extra.get(x)) }
+        setSlot(ctx, key, n.put("mv", mv)); return true
+    }
+
+    /** Guarda dados extras na operação deste robô (ex.: maior lucro já alcançado). */
+    fun slotPut(ctx: Context, symbol: String, tf: String, extra: JSONObject) { val key = "$symbol|$tf"; val n = slot(ctx, key) ?: return
+        val k = extra.keys(); while (k.hasNext()) { val x = k.next(); n.put(x, extra.get(x)) }; setSlot(ctx, key, n) }
+
     private fun cancelOco(ctx: Context, symbol: String, listId: Long) {
         try { signed(ctx, "DELETE", "/api/v3/orderList", mapOf("symbol" to symbol, "orderListId" to listId.toString())) } catch (e: BinanceError) { if (e.code != -2011) throw e }
     }
@@ -284,7 +307,7 @@ object Broker {
             val o = JSONObject(signed(ctx, "GET", "/api/v3/order", mapOf("symbol" to symbol, "orderId" to orders.getJSONObject(i).getLong("orderId").toString())))
             if (o.optString("status") == "FILLED" || o.optString("executedQty", "0").toDouble() > 0) {
                 val alvo = o.optString("type") == "LIMIT_MAKER"
-                val r = resumo(ctx, o, "SELL", symbol, if (alvo) "bateu o alvo na Binance" else "bateu o stop na Binance").put("tf", tf).put("alvo", alvo)
+                val ph = sl0.optInt("ph", 0); val r = resumo(ctx, o, "SELL", symbol, if (alvo) "bateu o alvo na Binance" else if (ph >= 2) "stop móvel (deixou correr)" else if (ph == 1) "stop no lucro travado" else "bateu o stop na Binance").put("tf", tf).put("alvo", alvo).put("ph", ph)
                 log(ctx, r); setSlot(ctx, key, null); return r
             }
         }
@@ -312,7 +335,7 @@ object Broker {
     /** A vigia avisa que conferiu o ativo (para o app mostrar "conferido há X s"). */
     fun beat(ctx: Context, id: String, tf: String) = sp(ctx).edit().putLong("beat_${id}|$tf", System.currentTimeMillis()).apply()
 
-    fun status(ctx: Context, id: String, tf: String): String = JSONObject().put("mode", mode(ctx)).put("inPos", slot(ctx, "$id|$tf") != null || inPosition(ctx, id))
+    fun status(ctx: Context, id: String, tf: String): String = JSONObject().put("mode", mode(ctx)).put("inPos", slot(ctx, "$id|$tf") != null || inPosition(ctx, id)).put("slot", slot(ctx, "$id|$tf") ?: JSONObject.NULL)
         .put("beat", sp(ctx).getLong("beat_${id}|$tf", 0L)).put("now", System.currentTimeMillis()).toString()
 
     fun logJson(ctx: Context): String = sp(ctx).getString("log", "[]") ?: "[]"

@@ -28,7 +28,7 @@ data class Watch(
     val strat: JSONObject, val stratName: String, val exit: String, val short: Boolean, val target: Double = 0.0,
     val robot: Boolean = false, val robotQuote: Double = 0.0, val cur: String = "R$ ",
     val maxLoss: Double = 0.0, val maxLosses: Int = 0, val oco: Boolean = true, val maxLossAll: Double = 0.0, val maxOpen: Int = 0,
-    val tpMoney: Double = 0.0, val slMoney: Double = 0.0,
+    val tpMoney: Double = 0.0, val slMoney: Double = 0.0, val prot: JSONObject = JSONObject(),
 )
 
 object Watches {
@@ -44,7 +44,7 @@ object Watches {
                 o.optString("stratName", "Cruzamento de médias"), o.optString("exit", "auto"), o.optBoolean("short", false), o.optDouble("target", 0.0),
                 o.optBoolean("robot", false), o.optDouble("robotQuote", 0.0), o.optString("cur", if (o.optString("id").endsWith("USDT")) "" else "R$ "),
                 o.optDouble("maxLoss", 0.0), o.optInt("maxLosses", 0), o.optBoolean("oco", true), o.optDouble("maxLossAll", 0.0), o.optInt("maxOpen", 0),
-                o.optDouble("tpMoney", 0.0), o.optDouble("slMoney", 0.0))
+                o.optDouble("tpMoney", 0.0), o.optDouble("slMoney", 0.0), o.optJSONObject("prot") ?: JSONObject())
         }
     }.getOrDefault(emptyList())
 
@@ -175,7 +175,7 @@ class MonitorService : Service() {
     private fun check(w: Watch) {
         val cs = candles(w); if (cs.size < w.slow + 3) return
         val k = cs.size - 1; val c = cs[k]
-        if (w.robot) { Broker.beat(this, w.id, w.tf); if (w.src == "binance") robotWatchOco(w) }
+        if (w.robot) { Broker.beat(this, w.id, w.tf); if (w.src == "binance") { robotWatchOco(w); runCatching { trail(w, cs) } } }
         val tfName = when (w.tf) { "60m" -> "1 hora"; "1d" -> "diário"; else -> w.tf.removeSuffix("m") + " min" }
         if (w.cross) {
             val dirs = Strategies.dirs(cs, w.strat) { day(it) }
@@ -246,6 +246,49 @@ class MonitorService : Service() {
             send("robo|${w.id}|${w.tf}|oco|${o.optLong("t")}", if (alvo) "🎯 Robô bateu o ALVO · ${w.name} · ${tfName(w.tf)}" else "🛑 Robô saiu no STOP · ${w.name} · ${tfName(w.tf)}",
                 "A Binance vendeu ${o.getDouble("qty")} por ${fmtQ(o.getDouble("quote"), w)}.")
         } catch (_: Exception) { }
+    }
+
+    /** Stop móvel: trava parte do lucro e, com volume forte, deixa o lucro correr. */
+    private fun trail(w: Watch, cs: List<Candle>) {
+        val p = w.prot; val lockOn = p.optBoolean("lockOn", true); val runOn = p.optBoolean("runOn", true)
+        if (!lockOn && !runOn) return
+        val sl0 = Broker.slot(this, "${w.id}|${w.tf}") ?: return; if (!sl0.has("oco")) return
+        val q = sl0.optDouble("quote"); val qty = sl0.optDouble("qty"); val pr = sl0.optDouble("price"); if (q <= 0 || qty <= 0 || pr <= 0) return
+        val fees = q * 0.002; fun px(m: Double) = pr * (1 + (m + fees) / q); fun money(price: Double) = (price / pr - 1) * q - fees
+        val now = JSONObject(get("https://api.binance.com/api/v3/ticker/price?symbol=${w.id}")).getString("price").toDouble()
+        val pnl = qty * now - q - fees; val peak = maxOf(sl0.optDouble("peak", 0.0), pnl)
+        var ph = sl0.optInt("ph", 0); val tpM = money(sl0.optDouble("tp")); val slM = money(sl0.optDouble("sl"))
+        val lockAt = p.optDouble("lockAt", 0.6); val lockKeep = p.optDouble("lockKeep", 0.3)
+        val goal = if (w.tpMoney > 0) w.tpMoney else tpM
+        var newTp = Double.NaN; var newSl = Double.NaN; var why = ""
+        // fase 2/3: perto do alvo com volume forte e preço acima da média 9 -> sobe o alvo e deixa correr
+        if (runOn && pnl >= maxOf(lockAt, tpM - 0.25 * goal) && strong(w, cs, now)) {
+            newTp = tpM + p.optDouble("runAdd", 1.0)
+            newSl = maxOf(slM, if (pnl >= goal) p.optDouble("runSl", 0.7) else maxOf(lockKeep, 0.5 * goal)); ph = 2; why = "🚀 Volume forte: deixando correr"
+        }
+        // fase 3: seguindo o preço, guarda 70% do maior lucro
+        if (ph == 2 && peak >= goal) { val keep = p.optDouble("trailKeep", 0.7) * peak; if (keep > maxOf(slM, if (newSl.isNaN()) -1e9 else newSl) + 0.1 * goal) { newSl = keep; if (why.isEmpty()) why = "📈 Stop subiu junto" } }
+        // fase 1: trava parte do lucro
+        if (lockOn && ph < 1 && pnl >= lockAt && slM < lockKeep) { newSl = maxOf(lockKeep, if (newSl.isNaN()) lockKeep else newSl); if (ph < 1) ph = 1; if (why.isEmpty()) why = "🔒 Lucro travado" }
+        if (newSl.isNaN() && newTp.isNaN()) { if (peak > sl0.optDouble("peak", 0.0)) Broker.slotPut(this, w.id, w.tf, JSONObject().put("peak", peak)); return }
+        var tp = if (newTp.isNaN()) sl0.optDouble("tp") else px(newTp); var sl = if (newSl.isNaN()) sl0.optDouble("sl") else px(newSl)
+        // a Binance recusa stop acima do preço ou alvo abaixo dele
+        if (sl >= now * 0.9985) sl = now * 0.9985; if (tp <= now * 1.0015) tp = now * 1.0015
+        sl = maxOf(sl, minOf(sl0.optDouble("sl"), now * 0.9985))
+        if (sl <= sl0.optDouble("sl") && tp == sl0.optDouble("tp")) return
+        if (Broker.robotMove(this, w.id, w.tf, tp, sl, JSONObject().put("ph", ph).put("peak", peak)))
+            send("robo|${w.id}|${w.tf}|mv|${System.currentTimeMillis() / 60000}", "$why · ${w.name} · ${tfName(w.tf)}",
+                "Lucro agora ${fmtQ(pnl, w)}. Stop garante ${fmtQ(money(sl), w)}, alvo em ${fmtQ(money(tp), w)}.")
+    }
+
+    /** Volume do candle atual (ou do último fechado) ≥ N× a média dos 20 anteriores e preço acima da média 9. */
+    private fun strong(w: Watch, cs: List<Candle>, now: Double): Boolean {
+        val closes = cs.map { it.c } + now; val e = ema(closes, 9); if (e.last().isNaN() || now <= e.last()) return false
+        val iv = tfInfo(w.tf)[2] as String; val a = JSONArray(get("https://api.binance.com/api/v3/klines?symbol=${w.id}&interval=$iv&limit=22"))
+        if (a.length() < 22) return false
+        val v = List(a.length()) { a.getJSONArray(it).getString(5).toDouble() }; val avg = v.subList(0, 20).average(); if (avg <= 0) return false
+        val cur = a.getJSONArray(21); val frac = ((System.currentTimeMillis() - cur.getLong(0)).toDouble() / (cur.getLong(6) - cur.getLong(0) + 1)).coerceIn(0.25, 1.0)
+        return maxOf(v[20], v[21] / frac) >= w.prot.optDouble("runVol", 1.5) * avg
     }
 
     private fun tfName(tf: String) = when (tf) { "60m" -> "1 hora"; "1d" -> "diário"; else -> tf.removeSuffix("m") + " min" }
