@@ -183,7 +183,7 @@ class MonitorService : Service() {
             if (w.robot && w.src == "binance") {
                 // entrar junto: a análise deu compra há até 2 candles e o robô ainda está fora
                 val last = evs.lastOrNull()
-                if (last != null && last.entry && last.dir > 0 && last.i < k && last.i >= k - 2 && !Broker.inPosition(this, w.id)) robot(w, last, cs[last.i].t, cs)
+                if (last != null && last.entry && last.dir > 0 && last.i < k && last.i >= k - 2 && Broker.slot(this, "${w.id}|${w.tf}") == null) robot(w, last, cs[last.i].t, cs)
             }
             for (e in evs) {
                 if (e.i != k) continue
@@ -233,19 +233,16 @@ class MonitorService : Service() {
     // ---------------- robô (Binance) ----------------
     /** Se o alvo ou o stop foi executado pela própria Binance, registra a venda e avisa. */
     private fun robotWatchOco(w: Watch) {
-        if (!w.oco || !Broker.inPosition(this, w.id)) return
+        if (Broker.slot(this, "${w.id}|${w.tf}") == null) return
         try {
-            if (Broker.holds(this, w.id)) return
-            val last = JSONArray(Broker.logJson(this)).let { a -> (0 until a.length()).map { a.getJSONObject(it) }.firstOrNull { it.optString("symbol") == w.id && it.optString("side") == "BUY" } } ?: return
-            val (q, v) = Broker.soldSince(this, w.id, last.optLong("t") - 5000)
-            val alvo = v >= last.optDouble("quote")
-            val o = JSONObject().put("t", System.currentTimeMillis()).put("side", "SELL").put("symbol", w.id).put("qty", q).put("quote", v)
-                .put("price", if (q > 0) v / q else 0.0).put("why", if (alvo) "bateu o alvo na Binance" else "bateu o stop na Binance").put("mode", Broker.mode(this))
-            Broker.log(this, o); Broker.setPosition(this, w.id, false)
-            send("robo|${w.id}|${w.tf}|oco|${last.optLong("t")}", if (alvo) "🎯 Robô bateu o ALVO · ${w.name}" else "🛑 Robô saiu no STOP · ${w.name}",
-                "A Binance vendeu $q por ${fmtQ(v, w)} (entrada ${fmtQ(last.optDouble("quote"), w)}).")
+            val o = Broker.robotOcoDone(this, w.id, w.tf) ?: return
+            val alvo = o.optBoolean("alvo")
+            send("robo|${w.id}|${w.tf}|oco|${o.optLong("t")}", if (alvo) "🎯 Robô bateu o ALVO · ${w.name} · ${tfName(w.tf)}" else "🛑 Robô saiu no STOP · ${w.name} · ${tfName(w.tf)}",
+                "A Binance vendeu ${o.getDouble("qty")} por ${fmtQ(o.getDouble("quote"), w)}.")
         } catch (_: Exception) { }
     }
+
+    private fun tfName(tf: String) = when (tf) { "60m" -> "1 hora"; "1d" -> "diário"; else -> tf.removeSuffix("m") + " min" }
 
     private fun robot(w: Watch, e: Strategies.Event, t: Long, cs: List<Candle>) {
         val key = "robo|${w.id}|${w.tf}|${if (e.entry) "in" else "out"}|$t"
@@ -253,28 +250,26 @@ class MonitorService : Service() {
         if (key in sent) return
         sentPrefs.edit().putStringSet("k", sent + key).apply() // marca antes, para nunca mandar a mesma ordem duas vezes
         try {
-            if (e.entry && e.dir > 0 && !Broker.inPosition(this, w.id)) {
+            val slotKey = "${w.id}|${w.tf}"
+            if (e.entry && e.dir > 0 && Broker.slot(this, slotKey) == null) {
                 if (Turnos.paused(this)) return // pausa para análise: sem novas entradas
                 val (pnl, seq) = Broker.today(this, w.id); val day = java.text.SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())
                 if (w.maxLoss > 0 && -pnl >= w.maxLoss) { send("robo|pausa|${w.id}|$day", "⏸ Robô pausado hoje · ${w.name}", "Chegou no limite de perda do dia (${fmtQ(-pnl, w)}). Volta a operar amanhã."); return }
                 if (w.maxLossAll > 0 && -Broker.todayAll(this) >= w.maxLossAll) { send("robo|pausaTodos|$day", "⏸ Todos os robôs pausados hoje", "A soma das perdas de hoje chegou no limite geral (${fmtQ(w.maxLossAll, w)}). Voltam a operar amanhã."); return }
                 if (w.maxOpen > 0 && Broker.openCount(this) >= w.maxOpen) { send("$key|cheio", "⏳ Robô não entrou · ${w.name}", "Já há ${w.maxOpen} robôs comprados ao mesmo tempo (o máximo que você escolheu)."); return }
                 if (w.maxLosses > 0 && seq >= w.maxLosses) { send("robo|pausa2|${w.id}|$day", "⏸ Robô pausado hoje · ${w.name}", "Foram $seq perdas seguidas. Volta a operar amanhã."); return }
-                val o = Broker.buy(this, w.id, w.robotQuote, w.stratName)
-                Broker.setPosition(this, w.id, true)
+                val o = Broker.robotBuy(this, w.id, w.tf, w.robotQuote, w.stratName)
                 if (w.oco) {
                     val a = Strategies.atr(cs, 14); val k = cs.size - 1; val at = if (a[k].isNaN()) cs[k].h - cs[k].l else a[k]
                     val (tk, sk) = when (w.exit) { "atr" -> Pair(1.0, 2.0); "atr2" -> Pair(2.0, 1.0); else -> Pair(4.0, 2.0) }
                     val pr = o.getDouble("price"); val tp = pr + tk * at; val sl = pr - sk * at
-                    try { Broker.protect(this, w.id, tp, sl); Broker.patchLast(this, JSONObject().put("tp", tp).put("sl", sl)) }
+                    try { Broker.robotProtect(this, w.id, w.tf, tp, sl); Broker.patchLast(this, JSONObject().put("tp", tp).put("sl", sl)) }
                     catch (x: Exception) { send("$key|semstop", "⚠️ Robô comprou sem stop na Binance · ${w.name}", (x.message ?: "falha") + " O app continua vigiando a saída.") }
                 }
-                send("$key|ok", "🤖 Robô COMPROU · ${w.name}", (if (Broker.mode(this) == "real") "CONTA REAL" else "Conta de teste") + ": comprou ${o.getDouble("qty")} por ${fmtQ(o.getDouble("quote"), w)} (${w.stratName}).")
-            } else if (!e.entry && e.dir > 0 && Broker.inPosition(this, w.id)) {
-                Broker.cancelAll(this, w.id)
-                val o = Broker.sellAll(this, w.id, e.why)
-                Broker.setPosition(this, w.id, false)
-                if (o != null) send("$key|ok", "🤖 Robô VENDEU · ${w.name}", (if (Broker.mode(this) == "real") "CONTA REAL" else "Conta de teste") + ": vendeu ${o.getDouble("qty")} por ${fmtQ(o.getDouble("quote"), w)}. Motivo: ${e.why}.")
+                send("$key|ok", "🤖 Robô COMPROU · ${w.name} · ${tfName(w.tf)}", (if (Broker.mode(this) == "real") "CONTA REAL" else "Conta de teste") + ": comprou ${o.getDouble("qty")} por ${fmtQ(o.getDouble("quote"), w)} (${w.stratName}).")
+            } else if (!e.entry && e.dir > 0 && Broker.slot(this, slotKey) != null) {
+                val o = Broker.robotClose(this, w.id, w.tf, e.why)
+                if (o != null) send("$key|ok", "🤖 Robô VENDEU · ${w.name} · ${tfName(w.tf)}", (if (Broker.mode(this) == "real") "CONTA REAL" else "Conta de teste") + ": vendeu ${o.getDouble("qty")} por ${fmtQ(o.getDouble("quote"), w)}. Motivo: ${e.why}.")
             }
         } catch (x: Exception) {
             Broker.log(this, JSONObject().put("t", System.currentTimeMillis()).put("side", "ERRO").put("symbol", w.id).put("why", x.message ?: "falha"))

@@ -60,8 +60,10 @@ object Turnos {
     }
 
     private fun closeAll(ctx: Context, notify: (String, String, String) -> Unit, id: String) {
-        val syms = Broker.openSymbols(ctx); if (syms.isEmpty()) return
+        val syms = Broker.openSymbols(ctx); val sl = Broker.slots(ctx); if (syms.isEmpty() && sl.isEmpty()) return
         var ok = 0; var tot = 0.0
+        for (k in sl.keys) { val (sym, tf) = k.split("|").let { it[0] to it.getOrElse(1) { "" } }
+            runCatching { Broker.robotClose(ctx, sym, tf, "fim do turno (fechamento automático)")?.let { ok++; tot += it.optDouble("quote") } } }
         for (s in syms) {
             runCatching {
                 Broker.cancelAll(ctx, s)
@@ -108,7 +110,7 @@ object Turnos {
         val keep = pick.map { it.optString("id") + "|" + it.optString("tf") }.toSet()
         val out = JSONArray()
         for (i in 0 until arr.length()) { val w = arr.getJSONObject(i); val k = w.optString("id") + "|" + w.optString("tf")
-            if (w.optString("src") == "binance" && w.optBoolean("robot") && k !in keep && !Broker.inPosition(ctx, w.optString("id"))) w.put("robot", false)
+            if (w.optString("src") == "binance" && w.optBoolean("robot") && k !in keep && Broker.slot(ctx, k) == null && !Broker.inPosition(ctx, w.optString("id"))) w.put("robot", false)
             if (w.optBoolean("auto") && !w.optBoolean("robot") && k !in keep) continue
             out.put(w) }
         for (p in pick) { val k = p.optString("id") + "|" + p.optString("tf")
@@ -116,8 +118,7 @@ object Turnos {
             if (w == null) { w = JSONObject(tpl.toString()).put("id", p.optString("id")).put("tf", p.optString("tf")).put("name", p.optString("name")).put("src", "binance")
                 .put("dec", 2).put("b3", false).put("auto", true).put("cur", if (p.optString("id").endsWith("USDT")) "" else "R$ "); out.put(w) }
             val st = p.optJSONObject("st") ?: JSONObject()
-            w.put("robot", true).put("strat", st).put("stratName", st.optString("name")).put("exit", p.optString("exit")).put("short", false).put("hit", p.optInt("hit"))
-            for (i in 0 until out.length()) { val x = out.getJSONObject(i); if (x !== w && x.optString("id") == p.optString("id")) x.put("robot", false) } }
+            w.put("robot", true).put("strat", st).put("stratName", st.optString("name")).put("exit", p.optString("exit")).put("short", false).put("hit", p.optInt("hit")) }
         vp.edit().putString("list", out.toString()).putLong("changed", System.currentTimeMillis()).apply()
     }
 }

@@ -187,7 +187,7 @@ object Broker {
     fun openSymbols(ctx: Context): List<String> { val pre = "pos_${mode(ctx)}_"; return sp(ctx).all.filter { it.key.startsWith(pre) && it.value == true }.map { it.key.removePrefix(pre) } }
 
     /** Quantos robôs estão comprados agora neste modo. */
-    fun openCount(ctx: Context): Int { val pre = "pos_${mode(ctx)}_"; return sp(ctx).all.count { it.key.startsWith(pre) && it.value == true } }
+    fun openCount(ctx: Context): Int { val pre = "pos_${mode(ctx)}_"; return sp(ctx).all.count { it.key.startsWith(pre) && it.value == true } + slots(ctx).size }
 
     /** Resultado de hoje somando todas as criptos, neste modo. */
     fun todayAll(ctx: Context): Double {
@@ -200,13 +200,80 @@ object Broker {
     fun today(ctx: Context, symbol: String): Pair<Double, Int> {
         val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); val m = mode(ctx)
         val cal = java.util.Calendar.getInstance(); cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0); val t0 = cal.timeInMillis
-        var buy: JSONObject? = null; var sum = 0.0; val res = ArrayList<Double>()
+        val open = HashMap<String, JSONObject>(); var sum = 0.0; val res = ArrayList<Double>()
         for (i in a.length() - 1 downTo 0) { val o = a.getJSONObject(i)
             if (o.optString("symbol") != symbol || o.optString("mode", "demo") != m) continue
-            when (o.optString("side")) { "BUY" -> buy = o
-                "SELL" -> { val b = buy; if (b != null && o.optLong("t") >= t0) { val r = o.optDouble("quote") - b.optDouble("quote"); sum += r; res.add(r) }; buy = null } } }
+            val k = o.optString("tf")
+            when (o.optString("side")) { "BUY" -> open[k] = o
+                "SELL" -> { val b = open.remove(k) ?: (if (k.isEmpty()) open.entries.firstOrNull()?.let { open.remove(it.key) } else null)
+                    if (b != null && o.optLong("t") >= t0) { val r = o.optDouble("quote") - b.optDouble("quote"); sum += r; res.add(r) } } } }
         var seq = 0; for (r in res.reversed()) { if (r < 0) seq++ else break }
         return Pair(sum, seq)
+    }
+
+    // ---------- posição de cada robô (cripto + tempo gráfico) ----------
+    private fun pk(ctx: Context, key: String) = "slot_${mode(ctx)}_$key"
+    fun slot(ctx: Context, key: String): JSONObject? = sp(ctx).getString(pk(ctx, key), null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+    private fun setSlot(ctx: Context, key: String, o: JSONObject?) { val e = sp(ctx).edit(); if (o == null) e.remove(pk(ctx, key)) else e.putString(pk(ctx, key), o.toString()); e.apply() }
+    fun slots(ctx: Context): Map<String, JSONObject> { val pre = "slot_${mode(ctx)}_"
+        return sp(ctx).all.filter { it.key.startsWith(pre) }.mapNotNull { (k, v) -> runCatching { k.removePrefix(pre) to JSONObject(v as String) }.getOrNull() }.toMap() }
+    fun clearSlots(ctx: Context, symbol: String) { val pre = "slot_${mode(ctx)}_$symbol|"; val e = sp(ctx).edit(); sp(ctx).all.keys.filter { it.startsWith(pre) }.forEach { e.remove(it) }; e.apply() }
+
+    /** Robô compra: guarda a quantidade líquida (já sem a taxa) só deste robô. */
+    fun robotBuy(ctx: Context, symbol: String, tf: String, quoteQty: Double, why: String): JSONObject {
+        val s = sym(ctx, symbol)
+        if (s.minNotional > 0 && quoteQty < s.minNotional) throw BinanceError(-1013, "O mínimo por ordem em $symbol é ${s.minNotional} ${s.quote}.")
+        val o = JSONObject(signed(ctx, "POST", "/api/v3/order", mapOf("symbol" to symbol, "side" to "BUY", "type" to "MARKET",
+            "quoteOrderQty" to BigDecimal(quoteQty).setScale(2, RoundingMode.DOWN).toPlainString(), "newOrderRespType" to "FULL")))
+        var fee = 0.0; o.optJSONArray("fills")?.let { f -> for (i in 0 until f.length()) { val x = f.getJSONObject(i); if (x.optString("commissionAsset") == s.base) fee += x.optString("commission", "0").toDouble() } }
+        val r = resumo(ctx, o, "BUY", symbol, why).put("tf", tf); val net = r.getDouble("qty") - fee; r.put("net", net)
+        log(ctx, r); setSlot(ctx, "$symbol|$tf", JSONObject().put("qty", net).put("t", r.getLong("t")).put("price", r.getDouble("price")).put("quote", r.getDouble("quote")))
+        return r
+    }
+
+    /** Alvo e stop (OCO) só da quantidade deste robô. */
+    fun robotProtect(ctx: Context, symbol: String, tf: String, tp: Double, sl: Double) {
+        val key = "$symbol|$tf"; val sl0 = slot(ctx, key) ?: return; val s = sym(ctx, symbol); val (free, _) = baseBal(ctx, s)
+        val qty = BigDecimal(minOf(sl0.getDouble("qty"), free).toString()).divide(s.step, 0, RoundingMode.DOWN).multiply(s.step)
+        if (qty <= BigDecimal.ZERO || qty < s.minQty) throw BinanceError(0, "Quantidade pequena demais para colocar o stop.")
+        val r = JSONObject(signed(ctx, "POST", "/api/v3/orderList/oco", mapOf("symbol" to symbol, "side" to "SELL", "quantity" to qty.stripTrailingZeros().toPlainString(),
+            "aboveType" to "LIMIT_MAKER", "abovePrice" to px(tp, s.tick),
+            "belowType" to "STOP_LOSS_LIMIT", "belowStopPrice" to px(sl, s.tick), "belowPrice" to px(sl * 0.997, s.tick), "belowTimeInForce" to "GTC")))
+        setSlot(ctx, key, sl0.put("oco", r.optLong("orderListId")).put("tp", tp).put("sl", sl))
+    }
+
+    private fun cancelOco(ctx: Context, symbol: String, listId: Long) {
+        try { signed(ctx, "DELETE", "/api/v3/orderList", mapOf("symbol" to symbol, "orderListId" to listId.toString())) } catch (e: BinanceError) { if (e.code != -2011) throw e }
+    }
+
+    /** Encerra a operação deste robô: cancela o alvo/stop dele e vende só a quantidade dele. */
+    fun robotClose(ctx: Context, symbol: String, tf: String, why: String): JSONObject? {
+        val key = "$symbol|$tf"; val sl0 = slot(ctx, key) ?: return null; val s = sym(ctx, symbol)
+        if (sl0.has("oco")) cancelOco(ctx, symbol, sl0.getLong("oco"))
+        val (free, _) = baseBal(ctx, s)
+        val qty = BigDecimal(minOf(sl0.getDouble("qty"), free).toString()).divide(s.step, 0, RoundingMode.DOWN).multiply(s.step)
+        setSlot(ctx, key, null)
+        if (qty <= BigDecimal.ZERO || qty < s.minQty) return null
+        val o = JSONObject(signed(ctx, "POST", "/api/v3/order", mapOf("symbol" to symbol, "side" to "SELL", "type" to "MARKET",
+            "quantity" to qty.stripTrailingZeros().toPlainString(), "newOrderRespType" to "FULL")))
+        return resumo(ctx, o, "SELL", symbol, why).put("tf", tf).also { log(ctx, it) }
+    }
+
+    /** O alvo ou o stop deste robô já foi executado pela Binance? Registra a venda e devolve ela. */
+    fun robotOcoDone(ctx: Context, symbol: String, tf: String): JSONObject? {
+        val key = "$symbol|$tf"; val sl0 = slot(ctx, key) ?: return null; if (!sl0.has("oco")) return null
+        val l = JSONObject(signed(ctx, "GET", "/api/v3/orderList", mapOf("orderListId" to sl0.getLong("oco").toString())))
+        if (l.optString("listOrderStatus") != "ALL_DONE") return null
+        val orders = l.optJSONArray("orders") ?: JSONArray()
+        for (i in 0 until orders.length()) {
+            val o = JSONObject(signed(ctx, "GET", "/api/v3/order", mapOf("symbol" to symbol, "orderId" to orders.getJSONObject(i).getLong("orderId").toString())))
+            if (o.optString("status") == "FILLED" || o.optString("executedQty", "0").toDouble() > 0) {
+                val alvo = o.optString("type") == "LIMIT_MAKER"
+                val r = resumo(ctx, o, "SELL", symbol, if (alvo) "bateu o alvo na Binance" else "bateu o stop na Binance").put("tf", tf).put("alvo", alvo)
+                log(ctx, r); setSlot(ctx, key, null); return r
+            }
+        }
+        setSlot(ctx, key, null); return null // cancelada por fora: libera o robô
     }
 
     /** Vende tudo o que tiver do ativo (ex.: todo o BTC). */
@@ -230,7 +297,7 @@ object Broker {
     /** A vigia avisa que conferiu o ativo (para o app mostrar "conferido há X s"). */
     fun beat(ctx: Context, id: String, tf: String) = sp(ctx).edit().putLong("beat_${id}|$tf", System.currentTimeMillis()).apply()
 
-    fun status(ctx: Context, id: String, tf: String): String = JSONObject().put("mode", mode(ctx)).put("inPos", inPosition(ctx, id))
+    fun status(ctx: Context, id: String, tf: String): String = JSONObject().put("mode", mode(ctx)).put("inPos", slot(ctx, "$id|$tf") != null || inPosition(ctx, id))
         .put("beat", sp(ctx).getLong("beat_${id}|$tf", 0L)).put("now", System.currentTimeMillis()).toString()
 
     fun logJson(ctx: Context): String = sp(ctx).getString("log", "[]") ?: "[]"
