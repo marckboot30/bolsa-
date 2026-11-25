@@ -282,7 +282,7 @@
 </div></div>
 <div class="sheet" id="menu"><div class="box">
   <div class="top" style="display:flex;align-items:center;gap:8px"><h2 style="flex:1;margin:0">O que mostrar</h2><button class="iconbtn" id="menuClose">✕</button></div>
-  <button class="primary" id="repOpen" style="margin:10px 0 0;height:46px;background:linear-gradient(90deg,#1f9e6a,#2b6cff)">📊 Relatório das criptos (melhores do dia)</button>
+  <button class="primary" id="repOpen" style="margin:10px 0 0;height:46px;background:linear-gradient(90deg,#1f9e6a,#2b6cff)">📊 Análises das criptos (histórico)</button>
   <button class="chip" id="refreshBtn" style="width:100%;height:42px;margin:8px 0 4px">⟳ Atualizar o gráfico agora</button>
   <button class="chip" id="updCheck" style="width:100%;height:42px;margin:0 0 4px">⬆️ Procurar nova versão do app <span class="mut" id="appVer"></span></button>
   <label>No gráfico</label><div id="menuChart"></div>
@@ -297,6 +297,7 @@
   <div style="flex:1"><label>Moeda</label><select id="repQuote" class="sel" style="height:44px"><option value="USDT">USDT (demo)</option><option value="BRL">Reais (BRL)</option></select></div></div>
   <div style="display:flex;gap:8px"><div style="flex:1"><label>Banca</label><input type="number" id="repBank" min="1"></div><div style="flex:1"><label>Meta por dia (%)</label><input type="number" id="repGoal" min="1"></div></div>
   <button class="primary" id="repRun" style="margin-top:12px">▶ Rodar agora</button>
+  <label style="margin-top:12px">🗂 Histórico das análises (toque para ver)</label><div id="repHist" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px"></div>
   <div id="repOut" style="margin-top:10px"></div>
 </div></div>
 <div class="sheet" id="bld"><div class="box">
@@ -1935,7 +1936,8 @@ function renderRep(rep) {
   if (!rep || !rep.items) { out.innerHTML = '<p class="mut">Ainda não tem relatório. Toque em <b>Rodar agora</b> (leva um ou dois minutos).</p>'; return; }
   if (rep.error) { out.innerHTML = '<p class="down">' + rep.error + '</p>'; return; }
   const it = rep.items, when = new Date(rep.t).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-  let h = '<p class="mut" style="font-size:12px">Feito em ' + when + ' · ' + rep.tested.toLocaleString("pt-BR") + ' combinações testadas · ' + rep.found + ' deram lucro.</p>';
+  const pk = new Set(rep.picked || []);
+  let h = '<p class="mut" style="font-size:12px">' + (rep.label ? '<b>' + rep.label + '</b> · ' : '') + 'Feito em ' + when + ' · ' + rep.tested.toLocaleString("pt-BR") + ' combinações testadas · ' + rep.found + ' deram lucro.' + (pk.size ? ' <b>🤖 = escolhida para os robôs.</b>' : '') + '</p>';
   if (!it.length) { out.innerHTML = h + '<p class="down"><b>Nenhuma combinação deu lucro.</b> O mais seguro hoje é não operar.</p>'; return; }
   const best = it[0], pd = best.perDay, need = goal;
   h += '<div class="card" style="border-color:' + (pd >= need ? "#26c281" : "#ffc531") + '"><h3>🎯 Meta do dia</h3><p style="margin:4px 0">' + goal + '% de ' + m(bank) + ' = <b>' + m(bank * goal / 100) + '</b>.</p>' +
@@ -1943,21 +1945,29 @@ function renderRep(rep) {
     (pd >= need ? '<p class="up" style="margin:4px 0">Dá para buscar a meta, mas o passado não garante o futuro.</p>' : '<p class="mut" style="font-size:12px;margin:4px 0">Nenhuma combinação chegou perto de ' + goal + '% ao dia no teste. Metas assim são muito altas: para não quebrar a banca, comece com uma meta menor e respeite o limite de perda.</p>') + '</div>';
   it.forEach((r, i) => {
     const a = assets().find(x => x.id === r.id), tf = TFS.find(t => t.id === r.tf);
-    h += '<div class="card" style="margin-bottom:6px;padding:10px"><div class="row"><span style="display:flex;align-items:center;gap:8px">' + (a ? logo(a) : "") + '<b>' + (i + 1) + '. ' + r.name + '</b>' +
+    h += '<div class="card" style="margin-bottom:6px;padding:10px"><div class="row"><span style="display:flex;align-items:center;gap:8px">' + (a ? logo(a) : "") + '<b>' + (i + 1) + '. ' + r.name + (pk.has(r.id + "|" + r.tf + "|" + r.strat) ? ' 🤖' : '') + '</b>' +
       (r.hit >= rep.minHit ? '<span class="tag" style="background:#1f5a3f;color:#9ff0c8">🎯 ' + r.hit + '%</span>' : '<span class="tag">' + r.hit + '%</span>') + '</span><b class="up">+' + r.sum.toFixed(1) + '%</b></div>' +
       '<div style="font-size:13px;margin:4px 0">' + r.stratName + '</div>' +
-      '<div class="row" style="font-size:12px"><span class="mut">' + (tf ? tf.label : r.tf) + ' · ' + EXIT_SHORT[r.exit] + ' · ' + r.n + ' operações em ' + Math.round(r.days) + ' dias</span><span class="mut">' + r.perDay.toFixed(2) + '%/dia</span></div>' +
+      '<div class="row" style="font-size:12px"><span class="mut">' + (tf ? tf.label : r.tf) + ' · ' + (EXIT_SHORT[r.exit] || r.exit) + ' · ' + r.n + ' operações em ' + Math.round(r.days) + ' dias</span><span class="mut">' + r.perDay.toFixed(2) + '%/dia</span></div>' +
       '<div style="text-align:right;margin-top:6px"><button class="chip" style="height:32px" data-rep="' + i + '">Abrir já configurado ›</button></div></div>';
   });
   out.innerHTML = h;
   out.querySelectorAll("[data-rep]").forEach(b => b.onclick = () => { const r = it[+b.dataset.rep]; document.getElementById("rep").classList.remove("open"); openFrom(r.id, r.tf, r.strat, r.exit); });
+}
+function repHistRender(sel) {
+  let hs = []; try { hs = JSON.parse(Android.scanHistory ? Android.scanHistory() : "[]"); } catch (e) {}
+  if (!hs.length) { let rep = null; try { rep = JSON.parse(Android.scanReport()); } catch (e) {} document.getElementById("repHist").innerHTML = '<span class="mut" style="font-size:12px">As próximas análises (11h, 23h e o relatório do dia) ficam guardadas aqui.</span>'; renderRep(rep); return; }
+  document.getElementById("repHist").innerHTML = hs.map((h, i) => '<button class="chip' + (i === sel ? ' on' : '') + '" data-rh="' + i + '" style="flex:none;padding:4px 10px;font-size:12px;line-height:1.2' + (i === sel ? ';background:#2b6cff;color:#fff' : '') + '">' +
+    (/turno/.test(h.label) ? (/13h/.test(h.label) ? '☀️ ' : '🌙 ') : '📊 ') + new Date(h.t).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) + '<br><small>' + (h.picked && h.picked.length ? h.picked.length + ' escolhidas' : h.found + ' deram lucro') + '</small></button>').join("");
+  document.querySelectorAll("[data-rh]").forEach(b => b.onclick = () => repHistRender(+b.dataset.rh));
+  renderRep(hs[sel]);
 }
 function openRep() {
   document.getElementById("menu").classList.remove("open");
   const hs = document.getElementById("repHour"); if (!hs.options.length) for (let i = 0; i < 24; i++) { const o = document.createElement("option"); o.value = i; o.textContent = String(i).padStart(2, "0") + ":00"; hs.appendChild(o); }
   hs.value = cfg.repHour != null ? cfg.repHour : 8; document.getElementById("repOn").checked = !!cfg.repOn; document.getElementById("repQuote").value = cfg.repQuote || "USDT";
   document.getElementById("repBank").value = cfg.repBank || 100; document.getElementById("repGoal").value = cfg.repGoal || 30;
-  let rep = null; try { rep = JSON.parse(Android.scanReport()); } catch (e) {} renderRep(rep);
+  repHistRender(0);
   document.getElementById("rep").classList.add("open");
 }
 const repSave = () => { cfg.repOn = document.getElementById("repOn").checked; cfg.repHour = +document.getElementById("repHour").value; cfg.repQuote = document.getElementById("repQuote").value;
@@ -1968,7 +1978,7 @@ document.getElementById("repClose").onclick = () => document.getElementById("rep
 document.getElementById("rep").addEventListener("click", e => { if (e.target.id === "rep") e.target.classList.remove("open"); });
 window.onScan = (done, b64) => { const t = decodeURIComponent(escape(atob(b64))), btn = document.getElementById("repRun");
   if (!done) { document.getElementById("repOut").innerHTML = '<p class="mut">Testando ' + t + '…</p>'; return; }
-  btn.disabled = false; try { renderRep(JSON.parse(t)); } catch (e) { document.getElementById("repOut").innerHTML = '<p class="down">Falhou.</p>'; } };
+  btn.disabled = false; try { JSON.parse(t); repHistRender(0); } catch (e) { document.getElementById("repOut").innerHTML = '<p class="down">Falhou.</p>'; } };
 document.getElementById("repRun").onclick = () => {
   if (!(window.Android && Android.scanNow)) { document.getElementById("repOut").innerHTML = '<p class="down">Só funciona dentro do app no celular.</p>'; return; }
   repSave(); document.getElementById("repRun").disabled = true; document.getElementById("repOut").innerHTML = '<p class="mut">Começando…</p>'; Android.scanNow(); };

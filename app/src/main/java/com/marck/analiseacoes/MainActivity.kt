@@ -145,6 +145,9 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun scanReport(): String = Scanner.report(this@MainActivity)
 
+        @JavascriptInterface
+        fun scanHistory(): String = Scanner.history(this@MainActivity)
+
         /** Roda o relatório agora; avisa o andamento em window.onScan(fim, base64) */
         @JavascriptInterface
         fun scanNow() {

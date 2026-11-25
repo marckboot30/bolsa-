@@ -89,6 +89,7 @@ object Turnos {
         val seen = HashSet<String>()
         val pick = all.sortedByDescending { it.optDouble("perDay") }.filter { seen.add(it.optString("id")) }.take(topN)
         val turno = if (id.endsWith("-11")) "13h" else "01h"
+        runCatching { Scanner.saveHist(ctx, rep, "Análise do turno das $turno", JSONArray(pick.map { it.optString("id") + "|" + it.optString("tf") + "|" + it.optString("strat") })) }
         if (pick.isEmpty()) {
             setLast(ctx, "Nenhuma cripto passou nos filtros. Robôs mantidos.")
             notify("turno|vazio|$id", "📊 Análise do turno: nenhuma passou", "Nenhuma cripto teve lucro com 10+ operações, ganhos maiores que as perdas e ${minFreq} op/dia. Os robôs continuam com a seleção anterior.")

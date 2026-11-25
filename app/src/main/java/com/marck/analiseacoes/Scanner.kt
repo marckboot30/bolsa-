@@ -22,6 +22,17 @@ object Scanner {
     fun cfg(ctx: Context): JSONObject = runCatching { JSONObject(sp(ctx).getString("cfg", "{}")) }.getOrDefault(JSONObject())
     fun enabled(ctx: Context) = cfg(ctx).optBoolean("on", false)
     fun report(ctx: Context): String = sp(ctx).getString("report", "{}") ?: "{}"
+    fun history(ctx: Context): String = sp(ctx).getString("hist", "[]") ?: "[]"
+
+    /** Guarda a análise no histórico (as 20 últimas, com as 30 melhores combinações de cada). */
+    fun saveHist(ctx: Context, rep: JSONObject, label: String, picked: JSONArray) {
+        val it = rep.optJSONArray("items") ?: JSONArray(); val top = JSONArray(); for (i in 0 until minOf(30, it.length())) top.put(it.get(i))
+        val e = JSONObject().put("t", rep.optLong("t", System.currentTimeMillis())).put("label", label).put("tested", rep.optInt("tested")).put("found", rep.optInt("found"))
+            .put("minHit", rep.optDouble("minHit", 0.0)).put("items", top).put("picked", picked).put("total", it.length())
+        val old = runCatching { JSONArray(history(ctx)) }.getOrDefault(JSONArray()); val out = JSONArray().put(e)
+        for (i in 0 until minOf(19, old.length())) out.put(old.get(i))
+        sp(ctx).edit().putString("hist", out.toString()).putString("report", e.toString()).apply()
+    }
 
     /** Já está na hora do relatório de hoje? */
     fun due(ctx: Context): Boolean {
@@ -89,6 +100,7 @@ object Scanner {
         val rep = JSONObject().put("t", System.currentTimeMillis()).put("tested", tested).put("found", all.size).put("minHit", minHit).put("items", JSONArray(top))
         if (days > 0) return rep
         sp(ctx).edit().putString("report", rep.toString()).putString("day", today()).apply()
+        saveHist(ctx, rep, "Relatório do dia", JSONArray())
         return rep
     }
 }
