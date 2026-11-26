@@ -593,6 +593,12 @@ async function loadRaw(asset, tf, hist) {
   if (asset.crypto) {
     let arr = [], end = null; const baseMin = IV_MIN[tf.b];
     const pages = hist ? Math.min(30, Math.ceil(((typeof hist === "number" ? hist : 30) + 15) * 1440 / baseMin / 1000)) : Math.min(5, Math.ceil(400 * tf.min / baseMin / 1000));
+    if (!hist && pages > 1) { // gráfico: baixa as páginas ao mesmo tempo (antes era uma depois da outra)
+      const span = 1000 * baseMin * 60000, now = Date.now();
+      const parts = await Promise.all(Array.from({ length: pages }, (_, i) => httpGet("https://api.binance.com/api/v3/klines?symbol=" + asset.id + "&interval=" + tf.b + "&limit=1000&endTime=" + (now - i * span)).then(t => JSON.parse(t))));
+      const seen = new Set(); for (const part of parts) { if (!Array.isArray(part)) throw new Error((part && part.msg) || "par não encontrado na Binance"); for (const k of part) if (!seen.has(k[0])) { seen.add(k[0]); arr.push(k); } }
+      arr.sort((a, b) => a[0] - b[0]);
+    } else
     for (let page = 0; page < pages; page++) {
       const part = JSON.parse(await httpGet("https://api.binance.com/api/v3/klines?symbol=" + asset.id + "&interval=" + tf.b + "&limit=" + (hist || pages > 1 ? 1000 : 500) + (end ? "&endTime=" + end : "")));
       if (!Array.isArray(part)) throw new Error((part && part.msg) || "par não encontrado na Binance");
@@ -1954,11 +1960,14 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) stopS
 // ================= FLUXO =================
 const statusEl = document.getElementById("status");
 let loading = false;
+const candleCache = {};
 async function refresh(keepView) {
   if (loading) return; loading = true; statusEl.textContent = "Atualizando…";
   try {
-    const asset = curAsset(), tf = curTf();
-    data = await loadCandles(asset, tf);
+    const asset = curAsset(), tf = curTf(), ck = asset.id + "|" + tf.id;
+    // mostra na hora o gráfico que já foi aberto antes (enquanto baixa o atualizado)
+    if (!keepView && candleCache[ck] && candleCache[ck] !== data) { try { data = candleCache[ck]; an = analyze(data.candles, cfg.fast, cfg.slow, tf.intraday, data.forming); view.end = null; render(); } catch (e) {} }
+    data = await loadCandles(asset, tf); candleCache[ck] = data;
     if (data.candles.length < cfg.slow + 5) throw new Error("poucos dados para esse tempo gráfico");
     data.forming = asset.crypto ? true : marketOpen(asset) && tf.intraday;
     an = analyze(data.candles, cfg.fast, cfg.slow, tf.intraday, data.forming);
