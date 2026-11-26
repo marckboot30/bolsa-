@@ -1255,7 +1255,7 @@ function render() {
   const pnlNow = (dir, entry, px) => asset.futures ? (px - entry) * dir : (px - entry) / entry * dir * 100;
   if (op) {
     const now = pnlNow(op.dir, op.entry, last.c);
-    setText("sigBadge", op.dir > 0 ? "COMPRADO" : "VENDIDO", "badge " + (op.dir > 0 ? "buy" : "sell"));
+    setText("sigBadge", op.dir > 0 ? "SINAL DE COMPRA" : "SINAL DE VENDA", "badge " + (op.dir > 0 ? "buy" : "sell"));
     setText("sigText", "Entrou em " + when(op.ei) + " a " + fmt(op.entry, asset) + ". Agora: " + res(now) + ". Aguardando o sinal de saída (" + EXITS[curExit(asset.id, cfg.tf)].toLowerCase() + ").");
     document.getElementById("sigText").className = now >= 0 ? "up" : "down";
   } else {
@@ -1264,7 +1264,7 @@ function render() {
     if (lastEv && lastEv.type === "exit") setText("sigText", "Saiu da " + (lastEv.dir > 0 ? "compra" : "venda") + " em " + when(lastEv.i) + " (" + res(lastEv.r) + ") porque " + lastEv.why + ". Aguardando novo sinal de entrada.");
     else setText("sigText", "Aguardando sinal de entrada.");
   }
-  setText("sigTitle", "Operação · " + an.st.name);
+  setText("sigTitle", "📈 Sinal da análise (simulação, não é o robô) · " + an.st.name);
   // tendência
   const f = an.fast[n - 1], sl = an.slow[n - 1], slPrev = an.slow[Math.max(0, n - 6)];
   let tr, tt, tc;
