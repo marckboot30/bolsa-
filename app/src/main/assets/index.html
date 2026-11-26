@@ -1021,7 +1021,7 @@ function backtest(cs, an, asset, intraday) {
 // ================= GRÁFICO =================
 const cv = document.getElementById("chart"), g = cv.getContext("2d");
 let view = { n: 70, end: null }, data = null, an = null;
-function fmt(v, asset) { if (v == null || !isFinite(v)) return "—"; const a = asset || curAsset(); const dec = a.futures ? 0 : (a.crypto && Math.abs(v) < 10 ? 4 : 2); return v.toLocaleString("pt-BR", { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+function fmt(v, asset) { if (v == null || !isFinite(v)) return "—"; const a = asset || curAsset(); const av = Math.abs(v), dec = a.futures ? 0 : a.crypto && av > 0 && av < 1 ? Math.min(10, Math.max(4, Math.ceil(-Math.log10(av)) + 3)) : (a.crypto && av < 10 ? 4 : 2); return v.toLocaleString("pt-BR", { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
 function sizeCanvas() { const w = cv.clientWidth, h = Math.round(Math.min(window.innerHeight * .52, w * 1.15)); cv.style.height = h + "px"; const dpr = window.devicePixelRatio || 1; cv.width = w * dpr; cv.height = h * dpr; g.setTransform(dpr, 0, 0, dpr, 0, 0); }
 function draw() {
   const V = showOpts();

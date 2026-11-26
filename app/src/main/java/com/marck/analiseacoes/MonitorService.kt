@@ -354,7 +354,7 @@ class MonitorService : Service() {
         java.text.NumberFormat.getNumberInstance(Locale("pt", "BR")).apply { minimumFractionDigits = 2; maximumFractionDigits = 2 }.format(v) + (if (w.id.endsWith("USDT")) " USDT" else "")
 
     private fun fmt(v: Double, w: Watch): String {
-        val dec = if (w.dec == 0) 0 else if (!w.b3 && v < 10) 4 else 2
+        val dec = if (w.dec == 0) 0 else if (!w.b3 && v > 0 && v < 1) minOf(10, maxOf(4, Math.ceil(-Math.log10(v)).toInt() + 3)) else if (!w.b3 && v < 10) 4 else 2
         val nf = java.text.NumberFormat.getNumberInstance(Locale("pt", "BR")).apply { minimumFractionDigits = dec; maximumFractionDigits = dec }
         return (if (w.dec == 0) "" else w.cur) + nf.format(v)
     }
