@@ -263,7 +263,7 @@
     <p id="pgTxt" class="mut" style="text-align:center;font-size:14px;margin:10px 0 2px"></p>
     <p id="pgSub" class="mut" style="text-align:center;font-size:12px;margin:0"></p>
   </div>
-  <div id="optForm">
+  <div id="optForm"><div id="pinList" style="margin-bottom:10px"></div>
   <p class="mut" style="margin:0;font-size:13px">Testa <span id="optN">todas as</span> análises × 3 saídas em cada tempo gráfico, já descontando as taxas.</p>
   <div class="card" style="margin:10px 0 0;padding:6px 10px">
     <div class="sw" style="margin:4px 0;font-size:14px"><span>🤖 <b>Análise automática</b><br><small class="mut" id="optAutoTxt">as estratégias do app</small></span><input type="checkbox" id="optAuto"></div>
@@ -1481,6 +1481,21 @@ const PROT0 = { lockOn: true, lockAt: .6, lockKeep: .3, runOn: true, runVol: 1.5
 if (!cfg.testFrom) { cfg.testFrom = Date.now(); store.set("cfg", cfg); }
 // ao abrir, manda a lista atual de estratégias para a análise automática (pega estratégias novas das atualizações)
 setTimeout(() => { try { syncTurnos(); } catch (e) {} try { syncScan(); } catch (e) {} }, 4000);
+// 📌 combinações mandadas pro analista: o robô fica ligado nelas em todos os turnos, até você tirar
+if (!cfg.autoTopV2) { cfg.autoTop = false; cfg.autoTopV2 = true; store.set("cfg", cfg); }
+function isPinned(r) { return (cfg.pins || []).some(p => p.id === r.a.id && p.tf === r.tf.id); }
+function pinAdd(r) { cfg.pins = (cfg.pins || []).filter(p => !(p.id === r.a.id && p.tf === r.tf.id));
+  cfg.pins.push({ id: r.a.id, tf: r.tf.id, strat: r.st.id, exit: r.ex, name: parts(r.a).t });
+  const k = r.a.id + "|" + r.tf.id; cfg.strat = cfg.strat || {}; cfg.exitBy = cfg.exitBy || {}; cfg.strat[k] = r.st.id; cfg.exitBy[k] = r.ex;
+  let w = cfg.watch.find(x => x.id === r.a.id && x.tf === r.tf.id);
+  if (!w) { w = { id: r.a.id, tf: r.tf.id, name: r.a.name, src: "binance", dec: 2, b3: false, cur: /USDT$/.test(r.a.id) ? "" : "R$ ", auto: true }; cfg.watch.push(w); }
+  w.robot = true; w.pin = true; syncWatch(); toast("📌 " + parts(r.a).t + " · " + r.tf.label + " enviada pro analista. O robô fica de olho em todos os turnos."); }
+function unpin(id, tf) { cfg.pins = (cfg.pins || []).filter(p => !(p.id === id && p.tf === tf)); const w = cfg.watch.find(x => x.id === id && x.tf === tf);
+  if (w) { w.pin = false; const a = assets().find(x => x.id === id); if (!(a && robotState(a, tf).open)) w.robot = false; } syncWatch(); toast("📌 Tirada do analista"); }
+function renderPins() { const el = document.getElementById("pinList"); if (!el) return; const ps = cfg.pins || [];
+  el.innerHTML = ps.length ? '<label style="margin:0 0 6px">📌 Mandadas pro analista (o robô opera em todos os turnos)</label>' + ps.map(p => { const st = STRATS.find(x => x.id === p.strat), tf = TFS.find(x => x.id === p.tf);
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;padding:6px 10px;background:#141b27;border-radius:10px;margin-bottom:4px"><span><b>' + p.name + '</b> · ' + (tf ? tf.label : p.tf) + '<br><small class="mut">' + (st ? st.name : "estratégia removida") + '</small></span><button class="chip" data-unpin="' + p.id + '|' + p.tf + '" style="padding:3px 10px">✕ tirar</button></div>'; }).join("") : "";
+  el.querySelectorAll("[data-unpin]").forEach(b => b.onclick = () => { const [i, t] = b.dataset.unpin.split("|"); unpin(i, t); renderPins(); if (optResults.length) showOpt(); }); }
 function protCfg() { return Object.assign({}, PROT0, cfg.prot || {}); }
 function syncWatch() {
   store.set("cfg", cfg);
@@ -1673,6 +1688,7 @@ function syncTurnos() {
   Android.setTurnos(JSON.stringify({ on: !!cfg.turnos, days: cfg.turnoDays || 15, minHit: 75, minFreq: cfg.minFreq != null ? cfg.minFreq : 1, topN: topNv(),
     quote: cfg.repQuote || "USDT", coins: assets().filter(a => a.crypto && a.id.endsWith(cfg.repQuote || "USDT")).map(a => ({ id: a.id, name: parts(a).t })),
     tfs: ["5m", "15m", "30m", "60m"], strats: optStrats().filter(s => !s.intradayOnly), tpl, vigiaTop: cfg.vigiaTop !== false,
+    pins: (cfg.pins || []).map(p => ({ id: p.id, tf: p.tf, name: p.name, exit: moneyExit() ? "money" : p.exit, st: STRATS.find(x => x.id === p.strat) })).filter(p => p.st),
     exits: moneyExit() ? ["money"] : ["auto", "atr", "atr2"], tpPct: (moneyExit() || {}).tpPct || 0, slPct: (moneyExit() || {}).slPct || 0 }));
 }
 function turnosState() { try { return JSON.parse(Android.turnosStatus()); } catch (e) { return { on: false }; } }
@@ -1723,7 +1739,7 @@ document.getElementById("optOpen").onclick = () => {
   const sel = document.getElementById("optAsset"); sel.innerHTML = "";
   const all = document.createElement("option"); all.value = ALL; all.textContent = "⭐ Todas as criptos (" + optCoins().length + ")"; sel.appendChild(all);
   fillAssets(sel);
-  sel.value = cfg.optAll === false ? cfg.asset : ALL; sel.addEventListener("change", () => { cfg.optAll = sel.value === ALL; store.set("cfg", cfg); }); sel.onchange = renderOptTfs; renderOptTfs(); optOut.innerHTML = ""; optSheet.classList.add("open");
+  sel.value = cfg.optAll === false ? cfg.asset : ALL; sel.addEventListener("change", () => { cfg.optAll = sel.value === ALL; store.set("cfg", cfg); }); sel.onchange = renderOptTfs; renderOptTfs(); optOut.innerHTML = ""; renderPins(); optSheet.classList.add("open");
 };
 optSheet.addEventListener("click", e => { if (e.target === optSheet) optSheet.classList.remove("open"); });
 let optResults = [], optDays = 15, optSort = store.get("optSort", "sum");
@@ -1829,7 +1845,7 @@ function applyTop() {
     let w = cfg.watch.find(x => x.id === r.a.id && x.tf === r.tf.id);
     if (!w) { w = { id: r.a.id, tf: r.tf.id, name: r.a.name, src: "binance", dec: 2, b3: false, cur: /USDT$/.test(r.a.id) ? "" : "R$ ", auto: true }; cfg.watch.push(w); }
     w.robot = true; w.hit = hit(r); }
-  if ((cfg.robotMaxOpen || 10) < pick.length) cfg.robotMaxOpen = pick.length;
+  if (cfg.robotMaxOpen > 0 && cfg.robotMaxOpen < pick.length) cfg.robotMaxOpen = pick.length;
   syncWatch();
   const val = cfg.robotQuote || 50;
   return { n: pick.length, html: '<p class="up" style="font-size:13px;margin:0"><b>🤖 Robô ligado em ' + pick.length + ' criptos</b> (' + val + ' ' + q + ' cada, até ' + (val * pick.length) + ' ' + q + ' se todas entrarem juntas).</p>' };
@@ -1857,7 +1873,7 @@ function showOpt() {
     h += '<div class="orow" data-k="' + optResults.indexOf(r) + '">' + logo(r.a) +
       '<div class="tx"><div><b>' + parts(r.a).t + '</b>' + (r.st.type === "custom" ? ' <span class="tag" style="background:#3b2a5c;color:#d9c7ff">🛠 sua</span>' : '') + ' <span class="tag"' + (hp >= 70 ? ' style="background:#1f5a3f;color:#9ff0c8"' : '') + '>' + (hp >= 70 ? '🎯 ' : '') + hp + '%</span>' + (consist(r) ? ' <span class="up" style="font-size:12px">✔</span>' : '') + '</div>' +
       '<small>' + r.st.name + '</small><small>' + r.tf.label + ' · ' + EXIT_SHORT[r.ex] + ' · <b style="color:#c9d1dd">' + fpd(r) + ' op/dia</b>' + (part ? ' · ' + r.days[D] + 'd' : '') + '</small></div>' +
-      '<div class="rt"><b class="up">+' + (r.a.futures ? Math.round(p.sum) + ' pts' : p.sum.toFixed(1) + '%') + '</b><small>' + p.wins + '✓ ' + (p.n - p.wins) + '✗</small><small class="' + (p.pf >= 1.3 ? "up" : "mut") + '">ganho÷perda ' + (p.pf >= 99 ? "∞" : p.pf.toFixed(1).replace(".", ",")) + '</small></div></div>';
+      '<div class="rt">' + (r.a.crypto ? '<button class="chip pinBtn" data-pin="' + optResults.indexOf(r) + '" style="padding:3px 8px;font-size:11px;margin-bottom:3px' + (isPinned(r) ? ';background:#2b6cff;color:#fff' : '') + '">' + (isPinned(r) ? '📌 enviada' : '📌 Mandar pro analista') + '</button>' : '') + '<b class="up">+' + (r.a.futures ? Math.round(p.sum) + ' pts' : p.sum.toFixed(1) + '%') + '</b><small>' + p.wins + '✓ ' + (p.n - p.wins) + '✗</small><small class="' + (p.pf >= 1.3 ? "up" : "mut") + '">ganho÷perda ' + (p.pf >= 99 ? "∞" : p.pf.toFixed(1).replace(".", ",")) + '</small></div></div>';
   });
   if (optAll && rows.length) {
     const N = topNv(), q = cfg.repQuote || "USDT";
@@ -1875,6 +1891,7 @@ function showOpt() {
   const go = document.getElementById("topGo");
   if (go) go.onclick = () => { const r = applyTop(); go.outerHTML = r.html; if (r.n) { optSheet.classList.remove("open"); renderLive(); document.getElementById("live").scrollIntoView({ behavior: "smooth", block: "center" }); } };
   optOut.querySelectorAll("#minFreq [data-f]").forEach(b => b.onclick = () => { cfg.minFreq = +b.dataset.f; store.set("cfg", cfg); showOpt(); });
+  optOut.querySelectorAll(".pinBtn").forEach(b => b.onclick = e => { e.stopPropagation(); const r = optResults[+b.dataset.pin]; if (isPinned(r)) unpin(r.a.id, r.tf.id); else pinAdd(r); showOpt(); renderPins(); });
   const at = document.getElementById("autoTop"); if (at) at.onchange = () => { cfg.autoTop = at.checked; store.set("cfg", cfg); };
   optOut.querySelectorAll(".orow").forEach(el => el.onclick = () => { const r = optResults[+el.dataset.k]; optSheet.classList.remove("open"); openFrom(r.a.id, r.tf.id, r.st.id, r.ex); });
 }

@@ -90,14 +90,19 @@ object Turnos {
         val pick = all.sortedByDescending { it.optDouble("perDay") }.filter { seen.add(it.optString("id")) }.take(topN)
         val turno = if (id.endsWith("-11")) "13h" else "01h"
         runCatching { Scanner.saveHist(ctx, rep, "Análise do turno das $turno", JSONArray(pick.map { it.optString("id") + "|" + it.optString("tf") + "|" + it.optString("strat") })) }
+        // 📌 as que você mandou pro analista entram sempre (até você tirar)
+        val pins = c.optJSONArray("pins") ?: JSONArray(); val pk = pick.map { it.optString("id") + "|" + it.optString("tf") }.toHashSet()
+        val pinList = (0 until pins.length()).map { pins.getJSONObject(it) }.filter { pk.add(it.optString("id") + "|" + it.optString("tf")) }
+        if (pick.isEmpty() && pinList.isNotEmpty()) { applyPick(ctx, pinList, c.optJSONObject("tpl") ?: JSONObject(), c.optBoolean("vigiaTop", true))
+            setLast(ctx, "Nenhuma cripto nova passou nos filtros. Robôs só nas 📌 suas (${pinList.size})."); notify("turno|pins|$id", "🤖 Turno das $turno", "Nenhuma cripto nova passou. Robôs ligados nas ${pinList.size} que você mandou pro analista."); return }
         if (pick.isEmpty()) {
             setLast(ctx, "Nenhuma cripto passou nos filtros. Robôs mantidos.")
             notify("turno|vazio|$id", "📊 Análise do turno: nenhuma passou", "Nenhuma cripto teve lucro com 10+ operações, ganhos maiores que as perdas e ${minFreq} op/dia. Os robôs continuam com a seleção anterior.")
             return
         }
-        applyPick(ctx, pick, c.optJSONObject("tpl") ?: JSONObject(), c.optBoolean("vigiaTop", true))
+        applyPick(ctx, pick + pinList, c.optJSONObject("tpl") ?: JSONObject(), c.optBoolean("vigiaTop", true))
         val b = pick[0]
-        val msg = "${pick.size} criptos para o turno das $turno · melhor ${b.optString("name")} " + String.format(java.util.Locale("pt", "BR"), "%+.2f%%/dia", b.optDouble("perDay"))
+        val msg = "${pick.size} criptos" + (if (pinList.isNotEmpty()) " + ${pinList.size} 📌 suas" else "") + " para o turno das $turno · melhor ${b.optString("name")} " + String.format(java.util.Locale("pt", "BR"), "%+.2f%%/dia", b.optDouble("perDay"))
         setLast(ctx, msg)
         notify("turno|ok|$id", "🤖 Robôs atualizados", msg + ". Toque para ver.")
     }
