@@ -1160,7 +1160,7 @@ function robotState(a, tf) {
     tp: me ? open.price * (1 + me.tpPct) : null, sl: me ? open.price * (1 - me.slPct) : null }); }
   return { st, mine, open, lastBuy, trips, err };
 }
-const livePx = {}; let liveAdj = null;
+const livePx = {}; let liveAdj = null, liveIdle = false;
 function adjBox(a, o) {
   const fees = o.quote * .002, tpM = o.tpM != null ? o.tpM : o.tp ? Math.max(0, (o.tp / o.price - 1) * o.quote - fees) : (cfg.robotTpM || 1),
     slM = o.slM != null ? o.slM : o.sl ? Math.max(0, (1 - o.sl / o.price) * o.quote + fees) : (cfg.robotSlM || 1);
@@ -1182,7 +1182,7 @@ function renderLive() {
   const inf = brkInfo(), real = inf.mode === "real", t0 = new Date(); t0.setHours(0, 0, 0, 0);
   const ml = cfg.robotMaxLoss != null ? cfg.robotMaxLoss : 10, ms = cfg.robotMaxLosses != null ? cfg.robotMaxLosses : 3;
   const money = (v, a) => { const c = brkQuoteCur(a); return (v >= 0 ? "+" : "−") + (c === "R$" ? "R$ " : "") + Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-  let tot = 0, opens = 0, rows = "", openRows = "", chips = ""; const exp = !!cfg.liveOpen;
+  let tot = 0, opens = 0, rows = "", openRows = "", chips = "", idleN = 0; const exp = !!cfg.liveOpen;
   for (const w of rs) {
     const a = assets().find(x => x.id === w.id); if (!a) continue;
     const R = robotState(a, w.tf), td = R.trips.filter(t => t.sell.t >= t0.getTime()), pnl = td.reduce((s, t) => s + t.r, 0); tot += pnl;
@@ -1205,14 +1205,15 @@ function renderLive() {
       (R.open ? '<div class="lbtns">' + (R.open.tf ? '<button class="lclose" data-adj="' + w.id + '|' + R.open.tf + '">⚙ Ajustar</button>' : '') + '<button class="lclose" data-close="' + w.id + '|' + (R.open.tf || "") + '">✕ Encerrar</button></div>' : '') + '</div>' + warn + '</div>' +
       (R.open && liveAdj === w.id + "|" + R.open.tf ? adjBox(a, R.open) : '');
     rows += row; if (R.open) openRows += row;
-    else chips += '<div class="lchip' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '" title="' + parts(a).t + '">' + logo(a) + '<i class="' + (paused ? "pz" : w.off ? "of" : "") + '"></i></div>';
+    else { idleN++; chips += '<div class="lchip' + (cur ? " on" : "") + '" data-id="' + w.id + '" data-tf="' + w.tf + '" title="' + parts(a).t + '">' + logo(a) + '<i class="' + (paused ? "pz" : w.off ? "of" : "") + '"></i></div>'; }
   }
   const q = brkQuoteCur(curAsset()) || "USDT";
   const T = turnosState(), hh = T.hour;
   const tline = T.on ? (T.paused ? '<div class="tbar pz">⏸ Pausa para análise · robôs voltam às ' + (hh === 11 || hh === 12 ? "13h" : "01h") + '</div>'
     : '<div class="tbar">⏰ Turno até às ' + (hh >= 1 && hh < 11 ? "11h" : "23h") + (T.last ? ' · ' + T.last : '') + '</div>') : '';
   el.innerHTML = tline + '<div class="hd" id="liveHd" style="cursor:pointer"><span>🤖 ' + rs.length + ' ROBÔS · ' + (real ? '<b class="down">REAL</b>' : 'TESTE') + ' · <b style="color:#e6e9ef">' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</b></span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' <span class="mut">' + (exp ? "▴" : "▾") + '</span></b></div>' +
-    (exp ? rows : openRows + (chips ? '<div class="lchips">' + (openRows ? '' : '<span class="mut" style="font-size:11px;align-self:center;margin-right:2px">Fora:</span>') + chips + '</div>' : ''));
+    (exp ? rows : openRows + (chips ? (liveIdle ? '<div class="lchips">' + chips + '</div>' : '') + '<button class="chip" id="liveIdleBtn" style="width:100%;margin-top:6px;font-size:12px">👀 ' + idleN + ' robôs vigiando, esperando sinal ' + (liveIdle ? '▴ esconder' : '▾ ver') + '</button>' : ''));
+  const lib = document.getElementById("liveIdleBtn"); if (lib) lib.onclick = ev => { ev.stopPropagation(); liveIdle = !liveIdle; renderLive(); };
   document.getElementById("liveHd").onclick = () => { cfg.liveOpen = !cfg.liveOpen; store.set("cfg", cfg); renderLive(); };
   el.querySelectorAll(".lchip").forEach(c => c.onclick = () => { if (c.dataset.id !== cfg.asset || c.dataset.tf !== cfg.tf) openFrom(c.dataset.id, c.dataset.tf); });
   if (exp) el.insertAdjacentHTML("beforeend", rs.some(w => w.robot) ? '<button class="rbPanic" id="liveOff" style="height:32px;margin-top:6px;border-color:#263042;color:#b9c1cf;background:none">⏹ Desligar todos os robôs</button>' : '');
@@ -1523,7 +1524,8 @@ function showUpd(html) { const b = document.getElementById("updBar"); b.innerHTM
 window.onUpdCheck = b64 => { let r; try { r = JSON.parse(decodeURIComponent(escape(atob(b64)))); } catch (e) { return; }
   if (r.error) { if (updManual) toast("Não consegui verificar agora. Confira a internet."); return; }
   updInfo = r;
-  if (r.available) showUpd('<div class="tx"><b>⬆️ Nova versão: v' + r.latest + '</b><br><span class="mut">Você está na v' + r.current + '. Toque em Atualizar.</span></div><button id="updGo">Atualizar</button>');
+  if (r.available && (updManual || updGoNow || r.latest > (cfg.updSkip || 0))) { showUpd('<div class="tx"><b>⬆️ Nova versão: v' + r.latest + '</b><br><span class="mut">Você está na v' + r.current + '. Atualizar agora?</span></div><div style="display:flex;gap:6px"><button id="updGo">Sim</button><button id="updLater" style="background:#3a4356">Depois</button></div>');
+    document.getElementById("updLater").onclick = () => { cfg.updSkip = r.latest; store.set("cfg", cfg); document.getElementById("updBar").classList.add("hidden"); toast("Ok. Quando quiser: ⋮ → Procurar nova versão."); }; }
   else if (updManual) toast("✅ Você já está na versão mais nova (v" + r.current + ").");
   const g = document.getElementById("updGo"); if (g) g.onclick = () => { Android.installUpdate(r.url); showUpd('<div class="tx"><b>⬇️ Baixando a v' + r.latest + '…</b><div class="bar"><div id="updFill"></div></div></div>'); };
   if (r.available && updGoNow && g) g.click(); updGoNow = false;

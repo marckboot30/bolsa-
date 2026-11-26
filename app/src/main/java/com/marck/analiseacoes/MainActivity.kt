@@ -56,6 +56,8 @@ class MainActivity : Activity() {
 
     /** Veio de uma notificação: abre o gráfico no ativo e no tempo do alerta. */
     private fun openFromIntent(i: Intent?) {
+        if (i?.getBooleanExtra("upd", false) == true) { i.removeExtra("upd"); getSystemService(android.app.NotificationManager::class.java).cancel(7700)
+            web.evaluateJavascript("window.scrollTo(0,0); updGoNow = true; checkUpd(true);", null); return }
         val a = i?.getStringExtra("asset") ?: return; val tf = i.getStringExtra("tf") ?: return
         val st = i.getStringExtra("strat") ?: ""; val ex = i.getStringExtra("exit") ?: ""; val rep = i.getBooleanExtra("report", false)
         i.removeExtra("asset"); i.removeExtra("tf"); i.removeExtra("strat"); i.removeExtra("exit"); i.removeExtra("report")

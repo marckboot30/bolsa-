@@ -23,7 +23,10 @@ jobs:
       - name: Compilar APK
         run: gradle assembleRelease --no-daemon --stacktrace
       - run: cp app/build/outputs/apk/release/app-release.apk AnaliseAcoes.apk
+      # só vira versão nova no celular quando o commit pedir "[lançar]" (ou rodando à mão);
+      # assim dá para juntar várias mudanças numa atualização só
       - name: Publicar para baixar no celular
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[lançar]')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}

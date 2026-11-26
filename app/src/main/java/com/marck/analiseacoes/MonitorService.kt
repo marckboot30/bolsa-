@@ -87,6 +87,7 @@ class MonitorService : Service() {
             val list = Watches.load(this)
             if (list.isEmpty() && !Scanner.enabled(this) && !Turnos.enabled(this)) { stopSelf(); return }
             runCatching { Turnos.tick(this, { get(it) }, { k, t, x -> send(k, t, x) }) { getSystemService(NotificationManager::class.java).notify(1, status("📊 Análise do turno: $it")) } }
+            runCatching { updNotify() }
             if (Scanner.due(this)) runCatching { dailyReport() }
             var ok = 0
             for (w in list) if (runCatching { check(w) }.isSuccess) ok++
@@ -371,6 +372,22 @@ class MonitorService : Service() {
         getSystemService(NotificationManager::class.java).notify(key.hashCode(), n)
     }
 
+    /** A cada 3 h confere se saiu versão nova do app e pergunta: Atualizar ou Depois. */
+    private fun updNotify() {
+        val sp = getSharedPreferences("upd", MODE_PRIVATE); val now = System.currentTimeMillis()
+        if (now - sp.getLong("t", 0) < 3 * 3600000L) return; sp.edit().putLong("t", now).apply()
+        val r = Updater.check(this); if (!r.optBoolean("available")) return
+        val v = r.optLong("latest"); if (sp.getLong("v", 0) >= v) return; sp.edit().putLong("v", v).apply()
+        val fl = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        val yes = PendingIntent.getActivity(this, 7701, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("upd", true), fl)
+        val no = PendingIntent.getBroadcast(this, 7702, Intent(this, DismissReceiver::class.java).putExtra("id", 7700), fl)
+        val n = builder("sinais").setSmallIcon(android.R.drawable.stat_sys_download_done).setContentTitle("⬆️ Nova versão do app: v$v")
+            .setContentText("Você está na v${r.optLong("current")}. Atualizar agora?").setAutoCancel(true).setContentIntent(yes)
+            .addAction(Notification.Action.Builder(null, "Sim, atualizar", yes).build())
+            .addAction(Notification.Action.Builder(null, "Depois", no).build()).build()
+        getSystemService(NotificationManager::class.java).notify(7700, n)
+    }
+
     private fun builder(ch: String): Notification.Builder =
         if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, ch) else @Suppress("DEPRECATION") Notification.Builder(this)
 
@@ -403,4 +420,10 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) runCatching { Watches.apply(ctx) }
     }
+}
+
+
+/** Botão "Depois" da notificação: só fecha o aviso. */
+class DismissReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(ctx: Context, i: Intent) { ctx.getSystemService(NotificationManager::class.java).cancel(i.getIntExtra("id", 0)) }
 }
