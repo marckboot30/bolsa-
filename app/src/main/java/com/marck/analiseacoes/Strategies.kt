@@ -200,6 +200,13 @@ object Strategies {
                     if (!lo.isNaN() && x.l < lo && x.c > lo && x.c > x.o) d[i] = 1
                     else if (!hi.isNaN() && x.h > hi && x.c < hi && x.c < x.o) d[i] = -1 }
             }
+            "touch" -> { // encostou (ou chegou até 10% de um ATR) na mínima do dia e fechou acima dela — sem exigir cor
+                val L = levels(cs, dayOf); val A = atr(cs, 14)
+                for (i in 1 until n) { val x = cs[i]; val lo = L.dLow[i]; val hi = L.dHigh[i]; if (L.nIn[i] < 3) continue
+                    val tol = 0.1 * (if (A[i].isNaN()) x.h - x.l else A[i])
+                    if (!lo.isNaN() && x.l <= lo + tol && x.c > lo && d[i - 1] != 1) d[i] = 1
+                    else if (!hi.isNaN() && x.h >= hi - tol && x.c < hi && d[i - 1] != -1) d[i] = -1 }
+            }
             "custom" -> {
                 val E = HashMap<Int, DoubleArray>(); val R = rsi(c, 14); val L = levels(cs, dayOf)
                 val B = ruleArr(cs, st.optJSONArray("buy"), E, R, L); val S = ruleArr(cs, st.optJSONArray("sell"), E, R, L)
