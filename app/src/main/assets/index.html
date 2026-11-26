@@ -1483,13 +1483,13 @@ if (!cfg.testFrom) { cfg.testFrom = Date.now(); store.set("cfg", cfg); }
 setTimeout(() => { try { syncTurnos(); } catch (e) {} try { syncScan(); } catch (e) {} }, 4000);
 // 📌 combinações mandadas pro analista: o robô fica ligado nelas em todos os turnos, até você tirar
 if (!cfg.autoTopV2) { cfg.autoTop = false; cfg.autoTopV2 = true; store.set("cfg", cfg); }
-function isPinned(r) { return (cfg.pins || []).some(p => p.id === r.a.id && p.tf === r.tf.id); }
-function pinAdd(r) { cfg.pins = (cfg.pins || []).filter(p => !(p.id === r.a.id && p.tf === r.tf.id));
+function isPinned(r) { return (cfg.pins || []).some(p => p.id === r.a.id && p.tf === r.tf.id && p.strat === r.st.id && p.exit === r.ex); }
+function pinAdd(r) { const had = (cfg.pins || []).some(p => p.id === r.a.id && p.tf === r.tf.id); cfg.pins = (cfg.pins || []).filter(p => !(p.id === r.a.id && p.tf === r.tf.id));
   cfg.pins.push({ id: r.a.id, tf: r.tf.id, strat: r.st.id, exit: r.ex, name: parts(r.a).t });
   const k = r.a.id + "|" + r.tf.id; cfg.strat = cfg.strat || {}; cfg.exitBy = cfg.exitBy || {}; cfg.strat[k] = r.st.id; cfg.exitBy[k] = r.ex;
   let w = cfg.watch.find(x => x.id === r.a.id && x.tf === r.tf.id);
   if (!w) { w = { id: r.a.id, tf: r.tf.id, name: r.a.name, src: "binance", dec: 2, b3: false, cur: /USDT$/.test(r.a.id) ? "" : "R$ ", auto: true }; cfg.watch.push(w); }
-  w.robot = true; w.pin = true; syncWatch(); toast("📌 " + parts(r.a).t + " · " + r.tf.label + " enviada pro analista. O robô fica de olho em todos os turnos."); }
+  w.robot = true; w.pin = true; syncWatch(); toast(had ? "📌 Trocada: agora " + parts(r.a).t + " · " + r.tf.label + " usa " + r.st.name + " (1 estratégia por cripto e tempo gráfico)." : "📌 " + parts(r.a).t + " · " + r.tf.label + " enviada pro analista. O robô fica de olho em todos os turnos."); }
 function unpin(id, tf) { cfg.pins = (cfg.pins || []).filter(p => !(p.id === id && p.tf === tf)); const w = cfg.watch.find(x => x.id === id && x.tf === tf);
   if (w) { w.pin = false; const a = assets().find(x => x.id === id); if (!(a && robotState(a, tf).open)) w.robot = false; } syncWatch(); toast("📌 Tirada do analista"); }
 function renderPins() { const el = document.getElementById("pinList"); if (!el) return; const ps = cfg.pins || [];
