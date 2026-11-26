@@ -1150,12 +1150,17 @@ document.getElementById("zOut").onclick = () => { view.n = Math.min(300, Math.ro
 function setText(id, t, cls) { const el = document.getElementById(id); el.textContent = t; if (cls !== undefined) el.className = cls; }
 // ================= ROBÔ AO VIVO =================
 let liveLog = [], liveLogT = 0;
-function robotLog() { if (Date.now() - liveLogT > 3000) { try { liveLog = JSON.parse(Android.brokerLog()); } catch (e) { liveLog = []; } liveLogT = Date.now(); } return liveLog; }
+// histórico de ordens: lido no máximo a cada 3 s e separado por cripto (antes cada robô varria as 2000 ordens)
+let liveLogBy = {};
+function robotLog() { if (Date.now() - liveLogT > 3000) { try { liveLog = JSON.parse(Android.brokerLogN ? Android.brokerLogN(400) : Android.brokerLog()); } catch (e) { liveLog = []; } liveLogT = Date.now();
+    liveLogBy = {}; for (const o of liveLog) (liveLogBy[o.symbol] = liveLogBy[o.symbol] || []).push(o); } return liveLog; }
+const stCache = {};
 function robotState(a, tf) {
   tf = tf || cfg.tf;
-  let st = { mode: "demo", inPos: false, beat: 0, now: Date.now() }; try { st = JSON.parse(Android.robotStatus(a.id, tf)); } catch (e) {}
+  const ck = a.id + "|" + tf; let st = stCache[ck] && Date.now() - stCache[ck].at < 1500 ? stCache[ck].st : null;
+  if (!st) { st = { mode: "demo", inPos: false, beat: 0, now: Date.now() }; try { st = JSON.parse(Android.robotStatus(a.id, tf)); } catch (e) {} stCache[ck] = { st, at: Date.now() }; }
   // ordens deste robô (mesma cripto e mesmo tempo); ordens antigas sem tempo valem para todos
-  const mine = robotLog().filter(o => o.symbol === a.id && (o.mode || "demo") === st.mode && o.side !== "ERRO" && (!o.tf || o.tf === tf));
+  robotLog(); const mine = (liveLogBy[a.id] || []).filter(o => (o.mode || "demo") === st.mode && o.side !== "ERRO" && (!o.tf || o.tf === tf));
   let open = mine[0] && mine[0].side === "BUY" ? mine[0] : null; const lastBuy = mine.find(o => o.side === "BUY");
   const trips = []; for (let i = 0; i < mine.length; i++) if (mine[i].side === "SELL") { const b = mine.slice(i + 1).find(o => o.side === "BUY"); if (b) trips.push({ buy: b, sell: mine[i], r: mine[i].quote - b.quote, pct: (mine[i].price / b.price - 1) * 100 }); }
   const err = robotLog().find(o => o.symbol === a.id && o.side === "ERRO");

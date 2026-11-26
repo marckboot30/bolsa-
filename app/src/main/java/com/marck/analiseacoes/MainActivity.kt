@@ -173,6 +173,11 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun brokerLog(): String = Broker.logJson(this@MainActivity)
 
+        /** Só as [n] ordens mais recentes (para o painel ao vivo, sem passar o histórico inteiro a cada 3 s). */
+        @JavascriptInterface
+        fun brokerLogN(n: Int): String = runCatching { val a = org.json.JSONArray(Broker.logJson(this@MainActivity)); val o = org.json.JSONArray()
+            for (i in 0 until minOf(n, a.length())) o.put(a.get(i)); o.toString() }.getOrDefault("[]")
+
         /** action: account | buy | sell — responde em window.onBroker(id, ok, base64) */
         @JavascriptInterface
         fun broker(id: Int, action: String, symbol: String, amount: Double) {

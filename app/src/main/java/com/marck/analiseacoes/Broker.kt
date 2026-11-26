@@ -20,6 +20,15 @@ import javax.crypto.spec.SecretKeySpec
 object Broker {
     private const val PREFS = "corretora"
     private fun sp(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    /** O histórico de ordens fica num arquivo só dele (antes ficava junto com tudo e deixava o app lento). */
+    private fun lp(ctx: Context): android.content.SharedPreferences {
+        val l = ctx.getSharedPreferences("brokerlog", Context.MODE_PRIVATE)
+        if (!l.contains("log")) { val old = sp(ctx).getString("log", null); l.edit().putString("log", old ?: "[]").commit(); if (old != null) sp(ctx).edit().remove("log").apply()
+            val e = sp(ctx).edit(); sp(ctx).all.keys.filter { it.startsWith("beat_") }.forEach { e.remove(it) }; e.apply() }
+        return l
+    }
+    /** "Conferido há X s" de cada robô: só na memória, sem gravar no disco a cada 30 s. */
+    private val beats = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     fun base(mode: String) = when (mode) {
         "testnet" -> "https://testnet.binance.vision"
@@ -178,9 +187,9 @@ object Broker {
 
     /** Acrescenta dados à última ordem registrada (ex.: alvo e stop). */
     fun patchLast(ctx: Context, extra: JSONObject) {
-        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); if (a.length() == 0) return
+        val a = runCatching { JSONArray(lp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); if (a.length() == 0) return
         val o = a.getJSONObject(0); val k = extra.keys(); while (k.hasNext()) { val key = k.next(); o.put(key, extra.get(key)) }
-        sp(ctx).edit().putString("log", a.toString()).apply()
+        lp(ctx).edit().putString("log", a.toString()).apply()
     }
 
     /** Criptos em que o robô está comprado agora, neste modo. */
@@ -191,14 +200,14 @@ object Broker {
 
     /** Resultado de hoje somando todas as criptos, neste modo. */
     fun todayAll(ctx: Context): Double {
-        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); val m = mode(ctx)
+        val a = runCatching { JSONArray(lp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); val m = mode(ctx)
         val syms = HashSet<String>(); for (i in 0 until a.length()) { val o = a.getJSONObject(i); if (o.optString("mode", "demo") == m) syms.add(o.optString("symbol")) }
         return syms.sumOf { today(ctx, it).first }
     }
 
     /** Resultado de hoje (compra → venda) e perdas seguidas de hoje, neste modo e ativo. */
     fun today(ctx: Context, symbol: String): Pair<Double, Int> {
-        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); val m = mode(ctx)
+        val a = runCatching { JSONArray(lp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray()); val m = mode(ctx)
         val cal = java.util.Calendar.getInstance(); cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0); val t0 = cal.timeInMillis
         val open = HashMap<String, JSONObject>(); var sum = 0.0; val res = ArrayList<Double>()
         for (i in a.length() - 1 downTo 0) { val o = a.getJSONObject(i)
@@ -251,9 +260,9 @@ object Broker {
         if (sl0.has("oco")) { cancelOco(ctx, symbol, sl0.getLong("oco")); sl0.remove("oco"); setSlot(ctx, key, sl0) }
         robotProtect(ctx, symbol, tf, tp, sl)
         // atualiza a compra no registro (para o painel e o gráfico mostrarem as novas linhas)
-        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray())
+        val a = runCatching { JSONArray(lp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray())
         for (i in 0 until a.length()) { val o = a.getJSONObject(i); if (o.optString("symbol") == symbol && o.optString("tf") == tf && o.optString("side") == "BUY") { o.put("tp", tp).put("sl", sl).put("tpM", tpMoney).put("slM", slMoney); break } }
-        sp(ctx).edit().putString("log", a.toString()).apply()
+        lp(ctx).edit().putString("log", a.toString()).apply()
         return JSONObject().put("tp", tp).put("sl", sl)
     }
 
@@ -327,18 +336,18 @@ object Broker {
     }
 
     fun log(ctx: Context, o: JSONObject) {
-        val a = runCatching { JSONArray(sp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray())
+        val a = runCatching { JSONArray(lp(ctx).getString("log", "[]")) }.getOrDefault(JSONArray())
         val n = JSONArray().put(o); for (i in 0 until minOf(a.length(), 1999)) n.put(a.get(i))
-        sp(ctx).edit().putString("log", n.toString()).apply()
+        lp(ctx).edit().putString("log", n.toString()).apply()
     }
 
     /** A vigia avisa que conferiu o ativo (para o app mostrar "conferido há X s"). */
-    fun beat(ctx: Context, id: String, tf: String) = sp(ctx).edit().putLong("beat_${id}|$tf", System.currentTimeMillis()).apply()
+    fun beat(ctx: Context, id: String, tf: String) { beats["$id|$tf"] = System.currentTimeMillis() }
 
     fun status(ctx: Context, id: String, tf: String): String = JSONObject().put("mode", mode(ctx)).put("inPos", slot(ctx, "$id|$tf") != null || inPosition(ctx, id)).put("slot", slot(ctx, "$id|$tf") ?: JSONObject.NULL)
-        .put("beat", sp(ctx).getLong("beat_${id}|$tf", 0L)).put("now", System.currentTimeMillis()).toString()
+        .put("beat", beats["$id|$tf"] ?: 0L).put("now", System.currentTimeMillis()).toString()
 
-    fun logJson(ctx: Context): String = sp(ctx).getString("log", "[]") ?: "[]"
+    fun logJson(ctx: Context): String = lp(ctx).getString("log", "[]") ?: "[]"
 
     /** Lembra se o robô está comprado em cada ativo (para não comprar duas vezes). */
     fun inPosition(ctx: Context, symbol: String) = sp(ctx).getBoolean("pos_${mode(ctx)}_$symbol", false)
