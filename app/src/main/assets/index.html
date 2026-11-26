@@ -1085,8 +1085,12 @@ function draw() {
       if (o.tp) rl(o.tp, "#26c281", "🎯 GAIN " + fmt(o.tp, asset) + " (" + ms(m(o.tp)) + ")" + tag, [5, 3], 2);
       if (o.sl) rl(o.sl, o.sl > o.price ? "#ffd166" : "#ff5468", (o.sl > o.price ? "🔒 STOP NO LUCRO " : "🛑 STOP ") + fmt(o.sl, asset) + " (" + ms(m(o.sl)) + ")" + (o.noStop ? " ⚠️" : ""), [5, 3], 2); }
     for (const o of R.mine) { const i = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span); if (i < start || i >= end || o.price > hi || o.price < lo) continue;
-      const x = X(i), y = Y(o.price); g.beginPath(); g.arc(x, y, 6, 0, 7); g.fillStyle = o.side === "BUY" ? "#1f9e6a" : "#d9414f"; g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.stroke();
-      g.font = "bold 10px system-ui"; g.textAlign = "center"; g.textBaseline = o.side === "BUY" ? "top" : "bottom"; g.fillStyle = "#e9d5ff"; g.fillText(o.side === "BUY" ? "🤖 C" : "🤖 V", x, o.side === "BUY" ? y + 9 : y - 9); } }
+      const x = X(i), y = Y(o.price), buy = o.side === "BUY";
+      // por cima dos candles: bolinha + etiqueta com fundo (C = compra, V = venda com o resultado)
+      robotLbl.push(() => { g.beginPath(); g.arc(x, y, 6, 0, 7); g.fillStyle = buy ? "#1f9e6a" : "#d9414f"; g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.stroke();
+        const t = buy ? "🤖 C " + new Date(o.t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "🤖 V " + new Date(o.t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        g.font = "bold 10px system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; const tw = g.measureText(t).width + 8, ty = buy ? y + 16 : y - 16;
+        g.fillStyle = "rgba(11,15,22,.88)"; g.fillRect(x - tw / 2, ty - 7, tw, 14); g.fillStyle = buy ? "#9ff0c8" : "#ffb3bc"; g.fillText(t, x, ty); }); } }
   // candles
   const bw = Math.max(1, cw * .62);
   for (let i = start; i < end; i++) {
