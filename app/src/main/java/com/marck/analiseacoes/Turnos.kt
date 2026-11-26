@@ -46,9 +46,11 @@ object Turnos {
     fun tick(ctx: Context, get: (String) -> String, notify: (String, String, String) -> Unit, progress: (String) -> Unit): Boolean {
         if (!paused(ctx)) return false
         val id = pauseId(); val p = sp(ctx)
-        if (!p.getBoolean("closed_$id", false)) {
+        // fecha tudo; se sobrar alguma operação aberta (erro, sem internet), tenta de novo a cada volta da pausa
+        if (!p.getBoolean("closed_$id", false) || Broker.slots(ctx).isNotEmpty() || Broker.openSymbols(ctx).isNotEmpty()) {
+            val first = !p.getBoolean("closed_$id", false)
             p.edit().putBoolean("closed_$id", true).apply()
-            closeAll(ctx, notify, id)
+            closeAll(ctx, notify, id, first)
         }
         if (!p.getBoolean("done_$id", false)) {
             p.edit().putBoolean("done_$id", true).apply()
@@ -59,20 +61,41 @@ object Turnos {
         return false
     }
 
-    private fun closeAll(ctx: Context, notify: (String, String, String) -> Unit, id: String) {
+    /** Fecha todas as operações dos robôs (fim do turno). Pode ser chamado de novo: só mexe no que ainda estiver aberto. */
+    fun closeAll(ctx: Context, notify: (String, String, String) -> Unit, id: String, first: Boolean = true) {
         val syms = Broker.openSymbols(ctx); val sl = Broker.slots(ctx); if (syms.isEmpty() && sl.isEmpty()) return
-        var ok = 0; var tot = 0.0
+        var ok = 0; var err = ""
         for (k in sl.keys) { val (sym, tf) = k.split("|").let { it[0] to it.getOrElse(1) { "" } }
-            runCatching { Broker.robotClose(ctx, sym, tf, "fim do turno (fechamento automático)")?.let { ok++; tot += it.optDouble("quote") } } }
+            runCatching { Broker.robotClose(ctx, sym, tf, "fim do turno (fechamento automático)")?.let { ok++ } }.onFailure { err = "$sym: ${it.message}" } }
         for (s in syms) {
             runCatching {
                 Broker.cancelAll(ctx, s)
                 val o = Broker.sellAll(ctx, s, "fim do turno (fechamento automático)")
                 Broker.setPosition(ctx, s, false)
-                if (o != null) { ok++; tot += o.optDouble("quote") }
-            }
+                if (o != null) ok++
+            }.onFailure { err = "$s: ${it.message}" }
         }
-        notify("turno|fecha|$id", "🔒 Fim do turno: $ok operações fechadas", "Fechei tudo para a pausa de análise. Volto a operar às ${if (id.endsWith("-11")) "13h" else "01h"}.")
+        val back = if (id.endsWith("-11")) "13h" else "01h"
+        if (ok > 0) notify("turno|fecha|$id|" + System.currentTimeMillis() / 60000, "🔒 Fim do turno: $ok operação(ões) fechada(s)", "Fechei tudo para a pausa de análise. Volto a operar às $back.")
+        if (err.isNotEmpty()) notify("turno|fechaerro|$id", "⚠️ Não consegui fechar tudo no fim do turno", "$err. Vou tentar de novo a cada 30 s.")
+        else if (first && ok == 0) notify("turno|fecha|$id", "🔒 Fim do turno", "Nenhuma operação aberta. Volto a operar às $back.")
+    }
+
+    /** Fechamento chamado pelo despertador (marca a pausa como fechada). */
+    fun closeNow(ctx: Context, notify: (String, String, String) -> Unit) {
+        val id = pauseId(); val p = sp(ctx); val first = !p.getBoolean("closed_$id", false)
+        p.edit().putBoolean("closed_$id", true).apply(); closeAll(ctx, notify, id, first)
+    }
+
+    /** Agenda o "despertador" das 11h e das 23h: mesmo com o celular dormindo, fecha as operações na hora. */
+    fun schedule(ctx: Context) {
+        val c = Calendar.getInstance(brt); val h = c.get(Calendar.HOUR_OF_DAY)
+        val next = if (h < 11) 11 else if (h < 23) 23 else 35
+        c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 20); c.set(Calendar.MILLISECOND, 0); c.add(Calendar.HOUR_OF_DAY, next)
+        val am = ctx.getSystemService(android.app.AlarmManager::class.java)
+        val pi = android.app.PendingIntent.getBroadcast(ctx, 9911, android.content.Intent(ctx, TurnoAlarm::class.java),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+        runCatching { am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, c.timeInMillis, pi) }
     }
 
     private fun analyzeAndApply(ctx: Context, get: (String) -> String, notify: (String, String, String) -> Unit, progress: (String) -> Unit, id: String) {
@@ -128,5 +151,24 @@ object Turnos {
             val st = p.optJSONObject("st") ?: JSONObject()
             w.put("robot", true).put("strat", st).put("stratName", st.optString("name")).put("exit", p.optString("exit")).put("short", false).put("hit", p.optInt("hit")) }
         vp.edit().putString("list", out.toString()).putLong("changed", System.currentTimeMillis()).apply()
+    }
+}
+
+
+/** Despertador do fim do turno: fecha as operações mesmo se a vigia estiver dormindo, e acorda a vigia. */
+class TurnoAlarm : android.content.BroadcastReceiver() {
+    override fun onReceive(ctx: Context, i: android.content.Intent) {
+        val r = goAsync()
+        Thread {
+            try {
+                if (Turnos.paused(ctx)) {
+                    val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
+                    Turnos.closeNow(ctx, { k, t, x -> runCatching {
+                        val b = if (android.os.Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(ctx, "sinais") else @Suppress("DEPRECATION") android.app.Notification.Builder(ctx)
+                        nm.notify(k.hashCode(), b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(t).setContentText(x).setAutoCancel(true).build()) } })
+                }
+                runCatching { ctx.startForegroundService(android.content.Intent(ctx, MonitorService::class.java)) }
+            } finally { Turnos.schedule(ctx); r.finish() }
+        }.start()
     }
 }
