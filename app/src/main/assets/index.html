@@ -1710,8 +1710,8 @@ document.getElementById("optOpen").onclick = () => {
   sel.value = cfg.optAll === false ? cfg.asset : ALL; sel.addEventListener("change", () => { cfg.optAll = sel.value === ALL; store.set("cfg", cfg); }); sel.onchange = renderOptTfs; renderOptTfs(); optOut.innerHTML = ""; optSheet.classList.add("open");
 };
 optSheet.addEventListener("click", e => { if (e.target === optSheet) optSheet.classList.remove("open"); });
-let optResults = [], optDays = 30, optSort = store.get("optSort", "sum");
-const PERIODS = [30, 60, 90];
+let optResults = [], optDays = 15, optSort = store.get("optSort", "sum");
+const PERIODS = [7, 15, 30, 60, 90], CONSIST = [7, 15, 30];
 function renderDays() {
   const box = document.getElementById("optDays"); box.innerHTML = "";
   for (const d of PERIODS) { const b = document.createElement("button"); b.className = "chip" + (d === optDays ? " on" : ""); b.textContent = d + " dias"; b.onclick = () => { optDays = d; renderDays(); if (optResults.length) showOpt(); }; box.appendChild(b); }
@@ -1823,7 +1823,7 @@ function showOpt() {
   const D = optDays, minOps = 5, byHit = optSort === "hit";
   const hit = r => Math.round(r.per[D].wins / r.per[D].n * 100);
   const valid = optResults.filter(r => r.per[D] && r.per[D].n >= minOps);
-  const consist = r => PERIODS.every(d => !r.per[d] || r.per[d].sum > 0);
+  const consist = r => CONSIST.every(d => !r.per[d] || r.per[d].sum > 0);
   const cmp = (x, y) => byHit ? (hit(y) - hit(x) || y.per[D].sum - x.per[D].sum) : (y.per[D].sum - x.per[D].sum);
   let rows = valid.filter(r => r.per[D].sum > 0).sort(cmp);
   if (optAll) { const seen = new Set(); rows = rows.filter(r => !seen.has(r.a.id) && seen.add(r.a.id)); } else rows = rows.slice(0, 20);
@@ -1852,7 +1852,7 @@ function showOpt() {
       '<div class="sw" style="margin:0 0 8px;font-size:13px"><span>Ligar sozinho ao terminar a análise</span><input type="checkbox" id="autoTop"' + (cfg.autoTop !== false ? " checked" : "") + '></div>' +
       '<button class="primary" id="topGo" style="margin:0;height:42px">🤖 ' + (cfg.robotTopN === 99 ? 'Ligar em todas que passaram' : 'Ligar nas ' + N + ' melhores') + '</button></div>';
   }
-  if (rows.length) h += '<p class="mut" style="font-size:11px;margin:8px 0 0">✔ = deu lucro nos períodos de 30, 60 e 90 dias. "Xd" = o histórico grátis só cobria X dias nesse tempo gráfico. O passado não garante o futuro.</p>';
+  if (rows.length) h += '<p class="mut" style="font-size:11px;margin:8px 0 0">✔ consistente = deu lucro nos últimos 7, 15 e 30 dias (está boa agora e não foi sorte de uma semana). "Xd" = o histórico grátis só cobria X dias nesse tempo gráfico. O passado não garante o futuro.</p>';
   optOut.innerHTML = h;
   optOut.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { optSort = b.dataset.sort; store.set("optSort", optSort); showOpt(); });
   optOut.querySelectorAll("#topN [data-n]").forEach(b => b.onclick = () => { cfg.robotTopN = +b.dataset.n; store.set("cfg", cfg); showOpt(); });
