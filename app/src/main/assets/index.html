@@ -1935,7 +1935,7 @@ function startStream() {
   try { ws = new WebSocket("wss://stream.binance.com:9443/ws/" + a.id.toLowerCase() + "@kline_" + tf.b); } catch (e) { return; }
   ws.onopen = () => { streamOk = true; };
   ws.onmessage = ev => {
-    if (!data || wsKey !== curAsset().id + "|" + curTf().id) return;
+    if (!data || wsKey !== curAsset().id + "|" + curTf().id || (data.key && data.key !== wsKey)) return; // não mistura candles de cripto diferente
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
     const k = m.k; if (!k) return;
     const tfc = curTf(), agg = IV_MIN[tfc.b] !== tfc.min;
@@ -1960,14 +1960,17 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) stopS
 // ================= FLUXO =================
 const statusEl = document.getElementById("status");
 let loading = false;
-const candleCache = {};
+const candleCache = {}; let refreshAgain = false;
 async function refresh(keepView) {
-  if (loading) return; loading = true; statusEl.textContent = "Atualizando…";
+  // se já está baixando outro gráfico, espera ele terminar e baixa de novo (antes o gráfico da cripto anterior aparecia na nova)
+  if (loading) { refreshAgain = true; return; } loading = true; refreshAgain = false; statusEl.textContent = "Atualizando…";
   try {
     const asset = curAsset(), tf = curTf(), ck = asset.id + "|" + tf.id;
     // mostra na hora o gráfico que já foi aberto antes (enquanto baixa o atualizado)
     if (!keepView && candleCache[ck] && candleCache[ck] !== data) { try { data = candleCache[ck]; an = analyze(data.candles, cfg.fast, cfg.slow, tf.intraday, data.forming); view.end = null; render(); } catch (e) {} }
-    data = await loadCandles(asset, tf); candleCache[ck] = data;
+    const got = await loadCandles(asset, tf);
+    if (curAsset().id !== asset.id || curTf().id !== tf.id) { loading = false; return refresh(); } // trocou de cripto/tempo no meio: descarta
+    got.key = ck; data = got; candleCache[ck] = data;
     if (data.candles.length < cfg.slow + 5) throw new Error("poucos dados para esse tempo gráfico");
     data.forming = asset.crypto ? true : marketOpen(asset) && tf.intraday;
     an = analyze(data.candles, cfg.fast, cfg.slow, tf.intraday, data.forming);
@@ -1976,6 +1979,7 @@ async function refresh(keepView) {
     statusEl.textContent = asset.crypto ? "" : "Atualizado às " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) + (cfg.auto && marketOpen(asset) ? " · atualiza a cada 10 segundos" : "");
   } catch (e) { statusEl.textContent = "Não consegui carregar: " + e.message + ". Verifique a internet."; }
   loading = false;
+  if (refreshAgain) { refreshAgain = false; refresh(); }
 }
 // ================= MENU ⋮ (o que mostrar) =================
 function applyView() {
