@@ -1236,7 +1236,8 @@ function renderLive() {
   const T = turnosState(), hh = T.hour;
   const tline = T.on ? (T.paused ? '<div class="tbar pz">⏸ Pausa para análise · robôs voltam às ' + (hh === 11 || hh === 12 ? "13h" : "01h") + '</div>'
     : '<div class="tbar">⏰ Turno até às ' + (hh >= 1 && hh < 11 ? "11h" : "23h") + (T.last ? ' · ' + T.last : '') + '</div>') : '';
-  el.innerHTML = tline + '<div class="hd" id="liveHd" style="cursor:pointer"><span>🤖 ' + rs.length + ' ROBÔS · ' + (real ? '<b class="down">REAL</b>' : 'TESTE') + ' · <b style="color:#e6e9ef">' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</b></span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' <span class="mut">' + (exp ? "▴" : "▾") + '</span></b></div>' +
+  const trnWarn = cfg.turnos ? '' : '<div style="font-size:12px;color:#ffd166;background:rgba(255,209,102,.1);border-radius:8px;padding:6px 8px;margin-bottom:6px">⚠️ <b>Turnos desligados</b>: o robô opera 24 h e <b>não fecha</b> às 11h e às 23h. Ligue em ⏰ Turnos automáticos.</div>';
+  el.innerHTML = tline + trnWarn + '<div class="hd" id="liveHd" style="cursor:pointer"><span>🤖 ' + rs.length + ' ROBÔS · ' + (real ? '<b class="down">REAL</b>' : 'TESTE') + ' · <b style="color:#e6e9ef">' + opens + ' comprado' + (opens === 1 ? '' : 's') + '</b></span><b class="' + (tot >= 0 ? "up" : "down") + '">Hoje ' + (tot >= 0 ? "+" : "−") + Math.abs(tot).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' <span class="mut">' + (exp ? "▴" : "▾") + '</span></b></div>' +
     (exp ? rows : openRows + (chips ? (liveIdle ? '<div class="lchips">' + chips + '</div>' : '') + '<button class="chip" id="liveIdleBtn" style="width:100%;margin-top:6px;font-size:12px">👀 ' + idleN + ' robôs vigiando, esperando sinal ' + (liveIdle ? '▴ esconder' : '▾ ver') + '</button>' : ''));
   const lib = document.getElementById("liveIdleBtn"); if (lib) lib.onclick = ev => { ev.stopPropagation(); liveIdle = !liveIdle; renderLive(); };
   document.getElementById("liveHd").onclick = () => { cfg.liveOpen = !cfg.liveOpen; store.set("cfg", cfg); renderLive(); };
@@ -1505,6 +1506,8 @@ function topNv() { return cfg.robotTopN === 99 ? 30 : Math.min(30, cfg.robotTopN
 if (!cfg.topAll) { cfg.robotTopN = 99; cfg.topAll = true; store.set("cfg", cfg); setTimeout(() => { try { syncTurnos(); } catch (e) {} }, 3000); }
 const PROT0 = { lockOn: true, lockAt: .6, lockKeep: .3, runOn: true, runVol: 1.5, runAdd: 1, runSl: .7, trailKeep: .7 };
 if (!cfg.testFrom) { cfg.testFrom = Date.now(); store.set("cfg", cfg); }
+// turnos (pausas 11h–13h e 23h–01h com fechamento automático) ligados por padrão: foi o combinado
+if (!cfg.turnosV2) { cfg.turnos = true; cfg.turnosV2 = true; store.set("cfg", cfg); }
 // ao abrir, manda a lista atual de estratégias para a análise automática (pega estratégias novas das atualizações)
 setTimeout(() => { try { syncTurnos(); } catch (e) {} try { syncScan(); } catch (e) {} }, 4000);
 // 📌 combinações mandadas pro analista: o robô fica ligado nelas em todos os turnos, até você tirar
