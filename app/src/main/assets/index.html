@@ -161,7 +161,7 @@
   .rbPanic { width: 100%; height: 38px; margin-top: 8px; border-radius: 10px; border: 1px solid #d9414f; background: rgba(217,65,79,.08); color: #ff8a95; font-size: 13px; font-weight: 800; }
   .sw input { width: 22px; height: 22px; }
   .primary { width: 100%; height: 48px; margin-top: 18px; border-radius: 12px; border: none; background: #2b6cff; color: #fff; font-weight: 800; font-size: 16px; }
-.tbar{height:6px;background:#1c2433;border-radius:4px;margin-top:8px;overflow:hidden}.tbar div{height:100%;background:#c084fc}
+.tprog{height:6px;background:#1c2433;border-radius:4px;margin-top:8px;overflow:hidden}.tprog div{height:100%;background:#c084fc}
 </style>
 </head>
 <body>
@@ -1599,7 +1599,7 @@ function renderHist() {
   const tm = t => new Date(t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   let h = '<div class="seg" id="histPer" style="margin-top:8px;width:max-content">' + [["teste", "Teste"], ["1", "Hoje"], ["7", "7 dias"], ["30", "30 dias"], ["all", "Tudo"]].map(([k, l]) => '<button data-p="' + k + '" class="' + (k === histPeriod ? "on" : "") + '">' + l + '</button>').join("") + '</div>' +
     '<p class="mut" style="font-size:11px;margin:4px 0 0">' + (mode === "real" ? '<b class="down">CONTA REAL</b>' : "Conta de teste") + (H.open.length ? ' · ' + H.open.length + ' operação(ões) aberta(s) agora' : '') + '</p>' +
-    (histPeriod === "teste" ? (() => { const n = H.trips.filter(t => t.sell.t >= cfg.testFrom).length; return '<div class="tbar"><div style="width:' + Math.min(100, n) + '%"></div></div><p style="font-size:12px;margin:2px 0 0">🧪 Teste da versão final: <b>' + Math.min(n, 100) + ' de 100</b> operações desde ' +
+    (histPeriod === "teste" ? (() => { const n = H.trips.filter(t => t.sell.t >= cfg.testFrom).length; return '<div class="tprog"><div style="width:' + Math.min(100, n) + '%"></div></div><p style="font-size:12px;margin:2px 0 0">🧪 Teste da versão final: <b>' + Math.min(n, 100) + ' de 100</b> operações desde ' +
       new Date(cfg.testFrom).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + (n >= 100 ? ' · ✅ pronto para avaliar' : '') + ' <button class="chip" id="testReset" style="padding:2px 8px;font-size:11px">recomeçar</button></p>'; })() : '');
   if (!tr.length) { body.innerHTML = h + '<p class="mut" style="font-size:13px;margin-top:10px">Nenhuma operação fechada neste período.</p>'; bindHist(); return; }
   h += '<div class="hsum"><div><b class="' + (tot >= 0 ? "up" : "down") + '">' + money(tot).replace(" USDT", "") + '</b><span>Resultado</span></div><div><b>' + tr.length + '</b><span>Operações</span></div>' +
