@@ -542,7 +542,7 @@ const cfg = Object.assign({ asset: "^BVSP", tf: "5m", fast: 9, slow: 21, alert: 
 // ================= O QUE MOSTRAR (menu ⋮) =================
 function loadCustom() { for (let i = STRATS.length - 1; i >= 0; i--) if (STRATS[i].type === "custom") STRATS.splice(i, 1); STRATS.push(...customStrats()); }
 const VIEW_CHART = [["medias", "Médias móveis", true], ["dayhl", "Máxima e mínima do dia", true], ["prevhl", "Máxima e mínima de ontem", true], ["fh", "Linhas da 1ª hora", true],
-  ["pats", "Padrões de candle (EA, EB, M, EC)", false], ["ops", "Entradas e saídas da análise (▲ ▼ ✕)", true], ["robo", "Ordens, alvo e stop do robô", true], ["legend", "Legenda embaixo do gráfico", false]];
+  ["pats", "Padrões de candle (EA, EB, M, EC)", false], ["vol", "Volume embaixo do gráfico", true], ["ops", "Entradas e saídas da análise (▲ ▼ ✕)", true], ["robo", "Ordens, alvo e stop do robô", true], ["legend", "Legenda embaixo do gráfico", false]];
 const VIEW_CARDS = [["live", "🤖 Robô ao vivo", true, "live"], ["perf", "Desempenho da análise", true, "perf"], ["sig", "Operação da análise", true, "sigCard"],
   ["trend", "Tendência e último candle", false, "trendCard,candleCard"], ["hl", "Máximas e mínimas", false, "hlCard"], ["bt", "Teste no passado (detalhes)", false, "btCard"],
   ["robotCfg", "Ajustes do robô na Binance", true, "robotCard"], ["watch", "Lista da vigia", false, "watchCard"], ["hist", "📒 Histórico de operações", true, "histCard"]];
@@ -1048,7 +1048,17 @@ function draw() {
   const lastDay = cs[end - 1].day, dayHL = tf.intraday ? an.days[lastDay] : null;
   const dk = Object.keys(an.days).sort(), prevDay = tf.intraday ? dk[dk.indexOf(lastDay) - 1] : null, prevHL = prevDay ? an.days[prevDay] : null;
   const pad = (hi - lo) * .08 || 1; hi += pad; lo -= pad;
-  const Y = v => padT + (hi - v) / (hi - lo) * (H - padT - padB), X = i => 6 + (i - start + .5) * cw;
+  // faixa do volume embaixo do gráfico (16% da altura)
+  const hasVol = V.vol && vis.some(c => c.v > 0), volH = hasVol ? Math.round(H * .16) : 0;
+  const Y = v => padT + (hi - v) / (hi - lo) * (H - padT - padB - volH), X = i => 6 + (i - start + .5) * cw;
+  if (hasVol) { const vb = H - padB, vt = vb - volH + 6, avgAt = i => { let s = 0, n = 0; for (let j = Math.max(0, i - 20); j < i; j++) { s += cs[j].v || 0; n++; } return n ? s / n : 0; };
+    let vmax = 0; for (let i = start; i < end; i++) vmax = Math.max(vmax, cs[i].v || 0); const k = protCfg().runVol || 1.5;
+    g.strokeStyle = "#232c3b"; g.lineWidth = 1; g.beginPath(); g.moveTo(0, vt - 3); g.lineTo(W - padR, vt - 3); g.stroke();
+    for (let i = start; i < end; i++) { const c = cs[i], h = vmax ? (c.v || 0) / vmax * (vb - vt) : 0, strong = c.v >= k * avgAt(i) && i >= 20;
+      g.fillStyle = c.c >= c.o ? (strong ? "rgba(38,194,129,.95)" : "rgba(38,194,129,.38)") : (strong ? "rgba(255,84,104,.95)" : "rgba(255,84,104,.38)");
+      g.fillRect(X(i) - cw * .35, vb - h, Math.max(1, cw * .7), h); }
+    g.strokeStyle = "#ffd166"; g.lineWidth = 1.2; g.beginPath(); let f = true; for (let i = Math.max(start, 20); i < end; i++) { const y = vb - (vmax ? avgAt(i) / vmax * (vb - vt) : 0); if (f) { g.moveTo(X(i), y); f = false; } else g.lineTo(X(i), y); } g.stroke();
+    g.font = "bold 10px system-ui"; g.textAlign = "left"; g.textBaseline = "top"; g.fillStyle = "#8a94a6"; g.fillText("VOLUME · média 20 · forte = " + String(k).replace(".", ",") + "× a média", 4, vt - 1); }
   // grade e eixo de preço
   g.font = "11px system-ui"; g.textAlign = "left"; g.textBaseline = "middle";
   for (let k = 0; k <= 5; k++) { const v = lo + (hi - lo) * k / 5, y = Y(v); g.strokeStyle = "#1a2130"; g.lineWidth = 1; g.beginPath(); g.moveTo(0, y); g.lineTo(W - padR, y); g.stroke(); g.fillStyle = "#6f7a8d"; g.fillText(fmt(v, asset), W - padR + 6, y); }
@@ -1075,15 +1085,15 @@ function draw() {
   if (asset.crypto && window.Android && Android.robotStatus && V.robo) { const R = robotState(asset), span = tf.min * 60000; if (R.open) { const o = R.open, q = o.quote || 0, fees = q * .002;
       const m = p => q ? (p / o.price - 1) * q - fees : 0, ms = v => (v >= 0 ? "+" : "−") + "$" + Math.abs(v).toFixed(2).replace(".", ",");
       // linha do robô: se estiver fora da tela, fica presa na borda com uma seta
-      const rl = (v, col, label, dash, w) => { const out = v > hi ? "↑ " : v < lo ? "↓ " : "", y = Math.max(padT + 12, Math.min(H - padB - 2, Y(v)));
+      const rl = (v, col, label, dash, w) => { const out = v > hi ? "↑ " : v < lo ? "↓ " : "", y = Math.max(padT + 12, Math.min(H - padB - volH - 2, Y(v)));
         g.strokeStyle = col; g.lineWidth = w || 1.6; g.setLineDash(out ? [1, 4] : dash); g.beginPath(); g.moveTo(0, y); g.lineTo(W - padR, y); g.stroke(); g.setLineDash([]);
         robotLbl.push(() => { g.font = "bold 10px system-ui"; g.textAlign = "left"; g.textBaseline = "bottom"; const t = out + label; g.fillStyle = "rgba(11,15,22,.88)"; g.fillRect(2, y - 13, g.measureText(t).width + 6, 12); g.fillStyle = col; g.fillText(t, 5, y - 2); }); return y; };
       const iE = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span), xE = iE >= start ? X(iE) : 0;
       // faixa de lucro garantido (stop acima da entrada)
-      if (o.sl && o.sl > o.price) { const y1 = Math.max(padT, Math.min(H - padB, Y(o.sl))), y0 = Math.max(padT, Math.min(H - padB, Y(o.price))); g.fillStyle = "rgba(38,194,129,.10)"; g.fillRect(xE, y1, W - padR - xE, y0 - y1); }
+      if (o.sl && o.sl > o.price) { const y1 = Math.max(padT, Math.min(H - padB - volH, Y(o.sl))), y0 = Math.max(padT, Math.min(H - padB - volH, Y(o.price))); g.fillStyle = "rgba(38,194,129,.10)"; g.fillRect(xE, y1, W - padR - xE, y0 - y1); }
       // caminho do stop e do alvo: degraus a cada vez que o robô moveu
       if (o.mv && o.mv.length > 1) for (const [key, col] of [["sl", "rgba(255,84,104,.55)"], ["tp", "rgba(38,194,129,.55)"]]) { g.strokeStyle = col; g.lineWidth = 1.2; g.beginPath(); let first = true, py = 0;
-        for (let j = 0; j < o.mv.length; j++) { const mv = o.mv[j], i = cs.findIndex(c => mv.t >= c.t * 1000 && mv.t < c.t * 1000 + span), x = i < 0 ? X(end - 1) : Math.max(xE, X(Math.max(i, start))), y = Math.max(padT, Math.min(H - padB, Y(mv[key])));
+        for (let j = 0; j < o.mv.length; j++) { const mv = o.mv[j], i = cs.findIndex(c => mv.t >= c.t * 1000 && mv.t < c.t * 1000 + span), x = i < 0 ? X(end - 1) : Math.max(xE, X(Math.max(i, start))), y = Math.max(padT, Math.min(H - padB - volH, Y(mv[key])));
           if (first) { g.moveTo(x, y); first = false; } else { g.lineTo(x, py); g.lineTo(x, y); } py = y; }
         g.lineTo(W - padR, py); g.stroke(); }
       const tag = o.noStop ? " ⚠️ ainda não está na Binance" : o.ph >= 2 ? " 🚀" : o.ph === 1 ? " 🔒" : "";
@@ -1941,11 +1951,11 @@ function startStream() {
     const tfc = curTf(), agg = IV_MIN[tfc.b] !== tfc.min;
     const kt = Math.floor(k.t / 1000), t = agg ? bucketOf(kt, tfc.min, true) : kt, cs = data.candles, last = cs[cs.length - 1];
     if (agg && last && last.t === t) { // atualiza o candle juntado
-      if (data.lastBase !== kt) { data.baseH = last.h; data.baseL = last.l; data.lastBase = kt; data.baseV = last.v; }
-      last.h = Math.max(data.baseH, +k.h); last.l = Math.min(data.baseL, +k.l); last.c = +k.c;
+      if (data.lastBase !== kt) { data.baseV = data.lastBase == null ? Math.max(0, (last.v || 0) - +k.v) : (last.v || 0); data.baseH = last.h; data.baseL = last.l; data.lastBase = kt; }
+      last.h = Math.max(data.baseH, +k.h); last.l = Math.min(data.baseL, +k.l); last.c = +k.c; last.v = data.baseV + +k.v;
     } else {
       const c = Object.assign({ t, o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v }, brt(t));
-      if (last && last.t === t) cs[cs.length - 1] = c; else if (!last || t > last.t) { cs.push(c); if (cs.length > 600) cs.shift(); if (agg) { data.lastBase = kt; data.baseH = -Infinity; data.baseL = Infinity; } }
+      if (last && last.t === t) cs[cs.length - 1] = c; else if (!last || t > last.t) { cs.push(c); if (cs.length > 600) cs.shift(); if (agg) { data.lastBase = kt; data.baseH = -Infinity; data.baseL = Infinity; data.baseV = 0; } }
     }
     const closesNow = k.x && (!agg || (kt + IV_MIN[tfc.b] * 60) >= t + tfc.min * 60);
     data.forming = !closesNow;
