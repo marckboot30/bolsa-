@@ -121,8 +121,10 @@ object Turnos {
         if (pick.isEmpty() && pinList.isNotEmpty()) { applyPick(ctx, pinList, c.optJSONObject("tpl") ?: JSONObject(), c.optBoolean("vigiaTop", true))
             setLast(ctx, "Nenhuma cripto nova passou nos filtros. Robôs só nas 📌 suas (${pinList.size})."); notify("turno|pins|$id", "🤖 Turno das $turno", "Nenhuma cripto nova passou. Robôs ligados nas ${pinList.size} que você mandou pro analista."); return }
         if (pick.isEmpty()) {
-            setLast(ctx, "Nenhuma cripto passou nos filtros. Robôs mantidos.")
-            notify("turno|vazio|$id", "📊 Análise do turno: nenhuma passou", "Nenhuma cripto teve lucro com 10+ operações, ganhos maiores que as perdas e ${minFreq} op/dia. Os robôs continuam com a seleção anterior.")
+            // sem nenhuma aprovada: desliga os robôs (antes mantinha a seleção velha, que já não passava nos filtros)
+            applyPick(ctx, emptyList(), c.optJSONObject("tpl") ?: JSONObject(), c.optBoolean("vigiaTop", true))
+            setLast(ctx, "Nenhuma cripto passou nos filtros. Robôs parados neste turno.")
+            notify("turno|vazio|$id", "📊 Turno das $turno: robôs parados", "Nenhuma cripto passou nos filtros (lucro nos 15 e nos 7 dias, 10+ operações, ganho ≥ 1,3× a perda). Melhor ficar de fora do que operar sem vantagem.")
             return
         }
         applyPick(ctx, pick + pinList, c.optJSONObject("tpl") ?: JSONObject(), c.optBoolean("vigiaTop", true))

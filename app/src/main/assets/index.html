@@ -1100,7 +1100,7 @@ function draw() {
       rl(o.price, "#c084fc", "🤖 ENTRADA " + fmt(o.price, asset), [6, 3]);
       if (o.tp) rl(o.tp, "#26c281", "🎯 GAIN " + fmt(o.tp, asset) + " (" + ms(m(o.tp)) + ")" + tag, [5, 3], 2);
       if (o.sl) rl(o.sl, o.sl > o.price ? "#ffd166" : "#ff5468", (o.sl > o.price ? "🔒 STOP NO LUCRO " : "🛑 STOP ") + fmt(o.sl, asset) + " (" + ms(m(o.sl)) + ")" + (o.noStop ? " ⚠️" : ""), [5, 3], 2); }
-    for (const o of R.mine) { const i = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span); if (i < start || i >= end || o.price > hi || o.price < lo) continue;
+    for (const o of R.mine) { if (o.void) continue; const i = cs.findIndex(c => o.t >= c.t * 1000 && o.t < c.t * 1000 + span); if (i < start || i >= end || o.price > hi || o.price < lo) continue;
       const x = X(i), y = Y(o.price), buy = o.side === "BUY";
       // por cima dos candles: bolinha + etiqueta com fundo (C = compra, V = venda com o resultado)
       robotLbl.push(() => { g.beginPath(); g.arc(x, y, 6, 0, 7); g.fillStyle = buy ? "#1f9e6a" : "#d9414f"; g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.stroke();
@@ -1178,7 +1178,7 @@ function robotState(a, tf) {
   // ordens deste robô (mesma cripto e mesmo tempo); ordens antigas sem tempo valem para todos
   robotLog(); const mine = (liveLogBy[a.id] || []).filter(o => (o.mode || "demo") === st.mode && o.side !== "ERRO" && (!o.tf || o.tf === tf));
   let open = mine[0] && mine[0].side === "BUY" ? mine[0] : null; const lastBuy = mine.find(o => o.side === "BUY");
-  const trips = []; for (let i = 0; i < mine.length; i++) if (mine[i].side === "SELL") { const b = mine.slice(i + 1).find(o => o.side === "BUY"); if (b) trips.push({ buy: b, sell: mine[i], r: mine[i].quote - b.quote, pct: (mine[i].price / b.price - 1) * 100 }); }
+  const trips = []; for (let i = 0; i < mine.length; i++) if (mine[i].side === "SELL" && !mine[i].void) { const b = mine.slice(i + 1).find(o => o.side === "BUY"); if (b) trips.push({ buy: b, sell: mine[i], r: mine[i].quote - b.quote, pct: (mine[i].price / b.price - 1) * 100 }); }
   const err = robotLog().find(o => o.symbol === a.id && o.side === "ERRO");
   if (open && st.slot && st.slot.tp) open = Object.assign({}, open, { tp: st.slot.tp, sl: st.slot.sl, mv: st.slot.mv || [], ph: st.slot.ph || 0, peak: st.slot.peak || 0 });
   else if (open && st.slot) { const me = moneyExit(); open = Object.assign({}, open, { noStop: true, err: st.slot.err || "",
@@ -1580,8 +1580,10 @@ function histTrips(mode) {
     const k = o.symbol + "|" + (o.tf || "");
     if (o.side === "BUY") open[k] = o;
     else if (o.side === "SELL") { let kk = open[k] ? k : !o.tf ? Object.keys(open).find(x => x.startsWith(o.symbol + "|")) : null; if (!kk) continue;
-      const b = open[kk]; trips.push({ sym: o.symbol, tf: o.tf || b.tf, buy: b, sell: o, r: o.quote - b.quote, pct: (o.price / b.price - 1) * 100 }); delete open[kk]; } }
-  return { trips: trips.reverse(), open: Object.values(open) };
+      const b = open[kk]; if (!o.void) trips.push({ sym: o.symbol, tf: o.tf || b.tf, buy: b, sell: o, r: o.quote - b.quote, pct: (o.price / b.price - 1) * 100 }); delete open[kk]; } }
+  // "aberta" só se o robô ainda está comprado de verdade (some com compras antigas que ficaram sem registro de venda)
+  const still = b => { try { const st = JSON.parse(Android.robotStatus(b.symbol, b.tf || "")); return st.inPos || !!st.slot; } catch (e) { return true; } };
+  return { trips: trips.reverse(), open: Object.values(open).filter(still) };
 }
 function renderHist() {
   const body = document.getElementById("histBody"), opened = !!cfg.histOpen;

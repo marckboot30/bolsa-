@@ -296,11 +296,15 @@ object Broker {
     /** Encerra a operação deste robô: cancela o alvo/stop dele e vende só a quantidade dele. */
     fun robotClose(ctx: Context, symbol: String, tf: String, why: String): JSONObject? {
         val key = "$symbol|$tf"; val sl0 = slot(ctx, key) ?: return null; val s = sym(ctx, symbol)
+        // o alvo/stop já executou na Binance? então registra essa venda (antes a operação ficava "travada" no histórico)
+        runCatching { robotOcoDone(ctx, symbol, tf) }.getOrNull()?.let { return it }
         if (sl0.has("oco")) cancelOco(ctx, symbol, sl0.getLong("oco"))
         val (free, _) = baseBal(ctx, s)
         val qty = BigDecimal(minOf(sl0.getDouble("qty"), free).toString()).divide(s.step, 0, RoundingMode.DOWN).multiply(s.step)
         setSlot(ctx, key, null)
-        if (qty <= BigDecimal.ZERO || qty < s.minQty) return null
+        if (qty <= BigDecimal.ZERO || qty < s.minQty) {
+            log(ctx, JSONObject().put("t", System.currentTimeMillis()).put("side", "SELL").put("symbol", symbol).put("tf", tf).put("mode", mode(ctx))
+                .put("void", true).put("why", "encerrada sem saldo na Binance ($why)").put("qty", 0).put("quote", 0).put("price", 0)); return null }
         val o = JSONObject(signed(ctx, "POST", "/api/v3/order", mapOf("symbol" to symbol, "side" to "SELL", "type" to "MARKET",
             "quantity" to qty.stripTrailingZeros().toPlainString(), "newOrderRespType" to "FULL")))
         return resumo(ctx, o, "SELL", symbol, why).put("tf", tf).also { log(ctx, it) }
