@@ -84,13 +84,15 @@ object Scanner {
                     for (ei in 0 until exits.length()) {
                         val ex = exits.getString(ei); tested++
                         val ev = runCatching { Strategies.simulate(cs, d, ex, false, false, 0.0, tpPct, slPct, dayOf) }.getOrNull() ?: continue
-                        var n = 0; var wins = 0; var sum = 0.0; var gw = 0.0; var gl = 0.0
+                        var n = 0; var wins = 0; var sum = 0.0; var gw = 0.0; var gl = 0.0; var n7 = 0; var sum7 = 0.0
+                        val t7 = cs.last().t - 7 * 86400L
                         for (e in ev) { if (e.entry || e.i < start) continue
-                            val r = ((e.price / e.entryPrice - 1) * e.dir - 2 * fee) * 100; n++; if (r > 0) { wins++; gw += r } else gl -= r; sum += r }
+                            val r = ((e.price / e.entryPrice - 1) * e.dir - 2 * fee) * 100; n++; if (r > 0) { wins++; gw += r } else gl -= r; sum += r
+                            if (cs[minOf(e.i, cs.size - 1)].t >= t7) { n7++; sum7 += r } }
                         if (n < minOps || sum <= 0) continue
                         all.add(JSONObject().put("id", id).put("name", coin.optString("name", id)).put("tf", tf).put("strat", st.optString("id")).put("stratName", st.optString("name"))
                             .put("exit", ex).put("n", n).put("hit", Math.round(wins * 100.0 / n).toInt()).put("sum", sum).put("days", span).put("perDay", if (span > 0) sum / span else 0.0)
-                            .put("opd", if (span > 0) n / span else 0.0).put("st", st).put("pf", if (gl > 0) gw / gl else if (gw > 0) 99.0 else 0.0))
+                            .put("opd", if (span > 0) n / span else 0.0).put("st", st).put("pf", if (gl > 0) gw / gl else if (gw > 0) 99.0 else 0.0).put("n7", n7).put("sum7", sum7))
                     }
                 }
             }

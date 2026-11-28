@@ -2042,7 +2042,7 @@ function renderRep(rep) {
     h += '<div class="card" style="margin-bottom:6px;padding:10px"><div class="row"><span style="display:flex;align-items:center;gap:8px">' + (a ? logo(a) : "") + '<b>' + (i + 1) + '. ' + r.name + (pk.has(r.id + "|" + r.tf + "|" + r.strat) ? ' 🤖' : '') + '</b>' +
       (r.hit >= rep.minHit ? '<span class="tag" style="background:#1f5a3f;color:#9ff0c8">🎯 ' + r.hit + '%</span>' : '<span class="tag">' + r.hit + '%</span>') + '</span><b class="up">+' + r.sum.toFixed(1) + '%</b></div>' +
       '<div style="font-size:13px;margin:4px 0">' + r.stratName + '</div>' +
-      '<div class="row" style="font-size:12px"><span class="mut">' + (tf ? tf.label : r.tf) + ' · ' + (EXIT_SHORT[r.exit] || r.exit) + ' · ' + r.n + ' operações em ' + Math.round(r.days) + ' dias</span><span class="mut">' + r.perDay.toFixed(2) + '%/dia</span></div>' +
+      '<div class="row" style="font-size:12px"><span class="mut">' + (tf ? tf.label : r.tf) + ' · ' + (EXIT_SHORT[r.exit] || r.exit) + ' · ' + r.n + ' operações em ' + Math.round(r.days) + ' dias' + (r.n7 != null ? ' · 7 dias: ' + (r.n7 ? '<b class="' + (r.sum7 > 0 ? 'up' : 'down') + '">' + (r.sum7 > 0 ? '+' : '') + r.sum7.toFixed(1) + '%</b>' : '—') : '') + '</span><span class="mut">' + r.perDay.toFixed(2) + '%/dia</span></div>' +
       '<div style="text-align:right;margin-top:6px"><button class="chip" style="height:32px" data-rep="' + i + '">Abrir já configurado ›</button></div></div>';
   });
   out.innerHTML = h;

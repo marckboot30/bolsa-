@@ -108,7 +108,9 @@ object Turnos {
         val minHit = c.optDouble("minHit", 75.0); val minFreq = c.optDouble("minFreq", 1.0); val topN = c.optInt("topN", 10); val quote = c.optString("quote", "USDT")
         // lucro por dia, com 10+ operações e ganhos maiores que as perdas (ganho÷perda ≥ 1,3)
         val all = (0 until items.length()).map { items.getJSONObject(it) }
-            .filter { it.optDouble("sum") > 0 && it.optInt("n") >= 10 && it.optDouble("pf") >= 1.3 && it.optDouble("opd") >= minFreq && it.optString("id").endsWith(quote) }
+            .filter { it.optDouble("sum") > 0 && it.optInt("n") >= 10 && it.optDouble("pf") >= 1.3 && it.optDouble("opd") >= minFreq && it.optString("id").endsWith(quote)
+                // rodada 2: também precisa estar dando lucro nos últimos 7 dias (ainda funciona agora)
+                && (!c.optBoolean("f7", true) || (it.optInt("n7") > 0 && it.optDouble("sum7") > 0)) }
         val seen = HashSet<String>()
         val pick = all.sortedByDescending { it.optDouble("perDay") }.filter { seen.add(it.optString("id")) }.take(topN)
         val turno = if (id.endsWith("-11")) "13h" else "01h"
